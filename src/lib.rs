@@ -16,24 +16,24 @@ const INCOMPAT_FLEX_BG: u8 = 9;
 
 fn incompatible_feature_name(id: u8) -> String {
     match id {
-        0 => "Compression".to_string(),
-        INCOMPAT_FILE_TYPE => "FileType".to_string(),
-        2 => "RecoveryNeeded".to_string(),
-        3 => "JournalDevice".to_string(),
-        4 => "MetaBG".to_string(),
+        0 => "Compression",
+        INCOMPAT_FILE_TYPE => "FileType",
+        2 => "RecoveryNeeded",
+        3 => "JournalDevice",
+        4 => "MetaBG",
 
-        INCOMPAT_FILE_TYPE => "Extents".to_string(),
-        7 => "64Bit".to_string(),
-        8 => "MMP".to_string(),
-        INCOMPAT_FLEX_BG => "FlexBg".to_string(),
-        10 => "EaInode".to_string(),
-        12 => "DirData".to_string(),
-        13 => "CsumSeed".to_string(),
-        14 => "LargeDir".to_string(),
-        15 => "InlineData".to_string(),
-        16 => "Encryption".to_string(),
-        unknown => format!("unknown incompat feature id {}", unknown)
-    }
+        INCOMPAT_FILE_TYPE => "Extents",
+        7 => "64Bit",
+        8 => "MMP",
+        INCOMPAT_FLEX_BG => "FlexBg",
+        10 => "EaInode",
+        12 => "DirData",
+        13 => "CsumSeed",
+        14 => "LargeDir",
+        15 => "InlineData",
+        16 => "Encryption",
+        unknown => return format!("unknown incompat feature id {}", unknown)
+    }.to_string()
 }
 
 const SUPPORTED_INCOMPATIBLE_FEATURES: u32 =
