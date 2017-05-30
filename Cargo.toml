@@ -1,0 +1,7 @@
+[package]
+name = "ext4"
+version = "0.1.0"
+authors = ["Chris West (Faux) <git@goeswhere.com>"]
+
+[dependencies]
+byteorder = "1.0.0"
