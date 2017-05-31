@@ -446,7 +446,10 @@ impl Fs {
                 let extent_entries = as_u16(&i_block[2..]);
                 let depth = as_u16(&i_block[6..]);
 
-                assert_eq!(0, depth);
+                if 0 != depth {
+                    println!("TODO: extent tree which is actually a tree");
+                    continue;
+                }
 
                 for en in 0..extent_entries {
                     let extent = &i_block[12+en as usize*12 ..];
