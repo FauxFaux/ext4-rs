@@ -6,6 +6,7 @@ extern crate enum_traits;
 
 use std::fmt;
 use std::io;
+use std::collections::HashMap;
 
 use byteorder::{ReadBytesExt, LittleEndian};
 
@@ -95,11 +96,10 @@ impl FileType {
 }
 
 #[derive(Debug)]
-struct BlockGroup {
-    number: u64,
-    block_bitmap_block: u64,
-    inode_bitmap_block: u64,
-    inode_table_block: u64,
+struct DirEntry {
+    inode: u32,
+    file_type: FileType,
+    name: String,
 }
 
 #[derive(Debug)]
@@ -109,18 +109,26 @@ struct Extent {
 }
 
 #[derive(Debug)]
-struct Fs {
-    block_size: u16,
+struct BlockGroup {
+    block_bitmap_block: u64,
+    inode_table_block: u64,
+    inodes: u64,
+    bitmap: Vec<u8>,
 }
 
-impl Fs {
-    fn new<R>(inner: &mut R) -> io::Result<Fs>
+#[derive(Debug)]
+struct SuperBlock {
+    block_size: u16,
+    inode_size: u16,
+    inodes_per_group: u32,
+    groups: HashMap<u16, BlockGroup>,
+}
+
+impl SuperBlock {
+    fn load<R>(inner: &mut R) -> io::Result<SuperBlock>
     where R: io::Read + io::Seek
     {
-        {
-            let mut boot_sector = [0; 1024];
-            inner.read_exact(&mut boot_sector)?;
-        }
+        inner.seek(io::SeekFrom::Start(1024))?;
 
         // <a cut -c 9- | fgrep ' s_' | fgrep -v ERR_ | while read ty nam comment; do printf "let %s =\n  inner.read_%s::<LittleEndian>()?; %s\n" $(echo $nam | tr -d ';') $(echo $ty | sed 's/__le/u/; s/__//') $comment; done
         let s_inodes_count =
@@ -271,7 +279,7 @@ impl Fs {
         inner.seek(io::SeekFrom::Start(block_size as u64 * 1))?;
         let blocks_count = (s_blocks_count_lo - s_first_data_block + s_blocks_per_group - 1) / s_blocks_per_group;
 
-        let mut groups = Vec::with_capacity(blocks_count as usize);
+        let mut groups = HashMap::with_capacity(blocks_count as usize);
 
         for block in 0..blocks_count {
             let bg_block_bitmap_lo =
@@ -331,166 +339,163 @@ impl Fs {
             let inode_bitmap_block: u64 = bg_inode_bitmap_lo as u64;
             let inode_table_block: u64 = bg_inode_table_lo as u64;
 
-            groups.push(BlockGroup {
-                number: block as u64,
+//            inner.seek(io::SeekFrom::Start(block_size as u64 * inode_bitmap_block))?;
+            let mut bitmap = vec![0u8; (s_inodes_per_group / 8) as usize];
+//            inner.read_exact(&mut bitmap);
+
+            let inodes = s_inodes_per_group.checked_sub(bg_free_inodes_count_lo as u32).expect("inodes") as u64;
+
+            groups.insert(block as u16, BlockGroup {
                 block_bitmap_block,
-                inode_bitmap_block,
-                inode_table_block
+                inode_table_block,
+                inodes,
+                bitmap,
             });
         }
 
-        let mut dirs = Vec::with_capacity(4096);
+        Ok(SuperBlock {
+            block_size,
+            inode_size: s_inode_size,
+            inodes_per_group: s_inodes_per_group,
+            groups,
+        })
+    }
 
-        for group in groups {
-            inner.seek(io::SeekFrom::Start(block_size as u64 * group.inode_bitmap_block))?;
-            let mut bitmap = Vec::new();
-            bitmap.resize((s_inodes_per_group / 8) as usize, 0);
-            inner.read_exact(&mut bitmap);
+    fn read_directory<R>(&self, inner: &mut R, inode: u32) -> io::Result<Vec<DirEntry>>
+    where R: io::Read + io::Seek {
+        assert_ne!(0, inode);
+        let inode = inode - 1;
 
-            inner.seek(io::SeekFrom::Start(block_size as u64 * group.inode_table_block))?;
-            for inode_idx in 0..s_inodes_per_group {
-                if bitmap[(inode_idx / 8) as usize] & (1 << (inode_idx % 8)) == 0 {
-                    continue;
-                }
+        let block = self.groups[&((inode / self.inodes_per_group) as u16)].inode_table_block;
+        let pos = block * self.block_size as u64 + (inode % self.inodes_per_group) as u64 * self.inode_size as u64;
+        inner.seek(io::SeekFrom::Start(pos))?;
 
-                let i_mode =
-                    inner.read_u16::<LittleEndian>()?; /* File mode */
-                let i_uid =
-                    inner.read_u16::<LittleEndian>()?; /* Low 16 bits of Owner Uid */
-                let i_size_lo =
-                    inner.read_u32::<LittleEndian>()?; /* Size in bytes */
-                let i_atime =
-                    inner.read_u32::<LittleEndian>()?; /* Access time */
-                let i_ctime =
-                    inner.read_u32::<LittleEndian>()?; /* Inode Change time */
-                let i_mtime =
-                    inner.read_u32::<LittleEndian>()?; /* Modification time */
-                let i_dtime =
-                    inner.read_u32::<LittleEndian>()?; /* Deletion Time */
-                let i_gid =
-                    inner.read_u16::<LittleEndian>()?; /* Low 16 bits of Group Id */
-                let i_links_count =
-                    inner.read_u16::<LittleEndian>()?; /* Links count */
-                let i_blocks_lo =
-                    inner.read_u32::<LittleEndian>()?; /* Blocks count */
-                let i_flags =
-                    inner.read_u32::<LittleEndian>()?; /* File flags */
-                let l_i_version =
-                    inner.read_u32::<LittleEndian>()?;
-                let mut i_block = [0u8; 15 * 4];
-                inner.read_exact(&mut i_block)?; /* Pointers to blocks */
-                let i_generation =
-                    inner.read_u32::<LittleEndian>()?; /* File version (for NFS) */
-                let i_file_acl_lo =
-                    inner.read_u32::<LittleEndian>()?; /* File ACL */
-                let i_size_high =
-                    inner.read_u32::<LittleEndian>()?;
-                let i_obso_faddr =
-                    inner.read_u32::<LittleEndian>()?; /* Obsoleted fragment address */
-                let l_i_blocks_high =
-                    inner.read_u16::<LittleEndian>()?; /* were l_i_reserved1 */
-                let l_i_file_acl_high =
-                    inner.read_u16::<LittleEndian>()?;
-                let l_i_uid_high =
-                    inner.read_u16::<LittleEndian>()?; /* these 2 fields */
-                let l_i_gid_high =
-                    inner.read_u16::<LittleEndian>()?; /* were reserved2[0] */
-                let l_i_checksum_lo =
-                    inner.read_u16::<LittleEndian>()?; /* crc32c(uuid+inum+inode) LE */
-                let l_i_reserved =
-                    inner.read_u16::<LittleEndian>()?;
-                let i_extra_isize =
-                    inner.read_u16::<LittleEndian>()?;
+        let i_mode =
+            inner.read_u16::<LittleEndian>()?; /* File mode */
+        let i_uid =
+            inner.read_u16::<LittleEndian>()?; /* Low 16 bits of Owner Uid */
+        let i_size_lo =
+            inner.read_u32::<LittleEndian>()?; /* Size in bytes */
+        let i_atime =
+            inner.read_u32::<LittleEndian>()?; /* Access time */
+        let i_ctime =
+            inner.read_u32::<LittleEndian>()?; /* Inode Change time */
+        let i_mtime =
+            inner.read_u32::<LittleEndian>()?; /* Modification time */
+        let i_dtime =
+            inner.read_u32::<LittleEndian>()?; /* Deletion Time */
+        let i_gid =
+            inner.read_u16::<LittleEndian>()?; /* Low 16 bits of Group Id */
+        let i_links_count =
+            inner.read_u16::<LittleEndian>()?; /* Links count */
+        let i_blocks_lo =
+            inner.read_u32::<LittleEndian>()?; /* Blocks count */
+        let i_flags =
+            inner.read_u32::<LittleEndian>()?; /* File flags */
+        let l_i_version =
+            inner.read_u32::<LittleEndian>()?;
+        let mut i_block = [0u8; 15 * 4];
+        inner.read_exact(&mut i_block)?; /* Pointers to blocks */
+        let i_generation =
+            inner.read_u32::<LittleEndian>()?; /* File version (for NFS) */
+        let i_file_acl_lo =
+            inner.read_u32::<LittleEndian>()?; /* File ACL */
+        let i_size_high =
+            inner.read_u32::<LittleEndian>()?;
+        let i_obso_faddr =
+            inner.read_u32::<LittleEndian>()?; /* Obsoleted fragment address */
+        let l_i_blocks_high =
+            inner.read_u16::<LittleEndian>()?; /* were l_i_reserved1 */
+        let l_i_file_acl_high =
+            inner.read_u16::<LittleEndian>()?;
+        let l_i_uid_high =
+            inner.read_u16::<LittleEndian>()?; /* these 2 fields */
+        let l_i_gid_high =
+            inner.read_u16::<LittleEndian>()?; /* were reserved2[0] */
+        let l_i_checksum_lo =
+            inner.read_u16::<LittleEndian>()?; /* crc32c(uuid+inum+inode) LE */
+        let l_i_reserved =
+            inner.read_u16::<LittleEndian>()?;
+        let i_extra_isize =
+            inner.read_u16::<LittleEndian>()?;
 
-                // rounding up to s_inode_size, don't get why we have to..
-                inner.seek(io::SeekFrom::Current(128 - 2))?;
+        inner.seek(io::SeekFrom::Current(self.inode_size as i64 - 128 - 2))?;
 
-                if false {
-                    let i_checksum_hi =
-                        inner.read_u16::<LittleEndian>()?; /* crc32c(uuid+inum+inode) BE */
-                    let i_ctime_extra =
-                        inner.read_u32::<LittleEndian>()?; /* extra Change time      (nsec << 2 | epoch) */
-                    let i_mtime_extra =
-                        inner.read_u32::<LittleEndian>()?; /* extra Modification time(nsec << 2 | epoch) */
-                    let i_atime_extra =
-                        inner.read_u32::<LittleEndian>()?; /* extra Access time      (nsec << 2 | epoch) */
-                    let i_crtime =
-                        inner.read_u32::<LittleEndian>()?; /* File Creation time */
-                    let i_crtime_extra =
-                        inner.read_u32::<LittleEndian>()?; /* extra FileCreationtime (nsec << 2 | epoch) */
-                    let i_version_hi =
-                        inner.read_u32::<LittleEndian>()?; /* high 32 bits for 64-bit version */
-                    let i_projid =
-                        inner.read_u32::<LittleEndian>()?; /* Project ID */
-                }
-
-                if 0 == i_mode {
-                    // Look, I don't know why these exist. I'm pretty sure it's not a desync, at least for my test files.
-                    // I can't see why e2fsck skips them, and it makes me sad. They have all kind of obfuscation layers.
-                    // I'm just going to ignore it for now.
-                    continue;
-                }
-
-                let extracted_type = FileType::from_mode(i_mode)
-                    .ok_or_else(|| parse_error(format!("unexpected file type in mode: {:b}", i_mode)))?;
-
-                println!("{:02}:{:06}: atime {} mode {:04o} type {:?} len {}",
-                         group.number, inode_idx + 1,
-                         i_atime, i_mode & 0b111_111_111_111,
-                         extracted_type,
-                         i_size_lo);
-                // i_block.iter().map(|b| format!("{:02x} ", b)).collect::<String>()
-
-                if 0 == i_flags {
-                    inner.seek(io::SeekFrom::Current(-256))?;
-                    let mut buf = [0; 256];
-                    inner.read_exact(&mut buf)?;
-                    dbg(&buf);
-                }
-
-                if i_flags & 0x00080000 == 0 {
-                    return Err(parse_error("inode without extents".to_string()));
-                }
-
-                assert_eq!(0x0a, i_block[0]);
-                assert_eq!(0xf3, i_block[1]);
-
-                let extent_entries = as_u16(&i_block[2..]);
-                let depth = as_u16(&i_block[6..]);
-
-                if 0 != depth {
-                    println!("TODO: extent tree which is actually a tree");
-                    continue;
-                }
-
-                for en in 0..extent_entries {
-                    let extent = &i_block[12+en as usize*12 ..];
-                    let ee_block = as_u32(extent);
-                    let ee_len = as_u16(&extent[4..]);
-                    let ee_start_hi = as_u16(&extent[6..]);
-                    let ee_start_lo = as_u32(&extent[8..]);
-                    let ee_start = ee_start_lo as u64 + 0x1000 * ee_start_hi as u64;
-
-                    if FileType::Directory != extracted_type {
-                        continue;
-                    }
-
-                    if 0 != ee_block {
-                        println!("TODO: have we found follow-on parts of a directory?");
-                        continue;
-                    }
-
-                    dirs.push(Extent {
-                        start: ee_start,
-                        len: ee_len,
-                    });
-                }
-            }
+        if false {
+            let i_checksum_hi =
+                inner.read_u16::<LittleEndian>()?; /* crc32c(uuid+inum+inode) BE */
+            let i_ctime_extra =
+                inner.read_u32::<LittleEndian>()?; /* extra Change time      (nsec << 2 | epoch) */
+            let i_mtime_extra =
+                inner.read_u32::<LittleEndian>()?; /* extra Modification time(nsec << 2 | epoch) */
+            let i_atime_extra =
+                inner.read_u32::<LittleEndian>()?; /* extra Access time      (nsec << 2 | epoch) */
+            let i_crtime =
+                inner.read_u32::<LittleEndian>()?; /* File Creation time */
+            let i_crtime_extra =
+                inner.read_u32::<LittleEndian>()?; /* extra FileCreationtime (nsec << 2 | epoch) */
+            let i_version_hi =
+                inner.read_u32::<LittleEndian>()?; /* high 32 bits for 64-bit version */
+            let i_projid =
+                inner.read_u32::<LittleEndian>()?; /* Project ID */
         }
 
-        for dir in dirs {
-            inner.seek(io::SeekFrom::Start(block_size as u64 * dir.start))?;
-            for i in 0..20 {
+        let extracted_type = FileType::from_mode(i_mode)
+            .ok_or_else(|| parse_error(format!("unexpected file type in mode: {:b}", i_mode)))?;
+
+        if false {
+            println!("{:06}: atime {} mode {:04o} type {:?} len {}",
+                     inode + 1,
+                     i_atime, i_mode & 0b111_111_111_111,
+                     extracted_type,
+                     i_size_lo);
+            // i_block.iter().map(|b| format!("{:02x} ", b)).collect::<String>()
+        }
+
+        if 0 == i_flags {
+            inner.seek(io::SeekFrom::Current(-256))?;
+            let mut buf = [0; 256];
+            inner.read_exact(&mut buf)?;
+            dbg(&buf);
+        }
+
+        if i_flags & 0x00080000 == 0 {
+            return Err(parse_error("inode without extents".to_string()));
+        }
+
+        assert_eq!(0x0a, i_block[0]);
+        assert_eq!(0xf3, i_block[1]);
+
+        let extent_entries = as_u16(&i_block[2..]);
+        let depth = as_u16(&i_block[6..]);
+
+        if 0 != depth {
+            panic!("TODO: extent tree which is actually a tree");
+        }
+
+        let mut dirs = Vec::with_capacity(40);
+
+        for en in 0..extent_entries {
+            let extent = &i_block[12+en as usize*12 ..];
+            let ee_block = as_u32(extent);
+            let ee_len = as_u16(&extent[4..]);
+            let ee_start_hi = as_u16(&extent[6..]);
+            let ee_start_lo = as_u32(&extent[8..]);
+            let ee_start = ee_start_lo as u64 + 0x1000 * ee_start_hi as u64;
+
+            if FileType::Directory != extracted_type {
+                panic!("not a directory");
+            }
+
+            if 0 != ee_block {
+                panic!("TODO: have we found follow-on parts of a directory?");
+            }
+
+            let to_read = ee_len * self.block_size;
+
+            inner.seek(io::SeekFrom::Start(self.block_size as u64 * ee_start))?;
+            let mut read = 0;
+            loop {
                 let child_inode = inner.read_u32::<LittleEndian>()?;
                 let rec_len = inner.read_u16::<LittleEndian>()?;
                 let name_len = inner.read_u8()?;
@@ -498,14 +503,50 @@ impl Fs {
                 let mut name = Vec::new();
                 name.resize(name_len as usize, 0);
                 inner.read(&mut name)?;
-                inner.seek(io::SeekFrom::Current(rec_len as i64 - name_len as i64  - 4 - 2 - 2))?;
-//                println!("{} {:x} {} {} {:?}", dir.start, file_type, child_inode, rec_len, std::str::from_utf8(&name));
+                inner.seek(io::SeekFrom::Current(rec_len as i64 - name_len as i64 - 4 - 2 - 2))?;
+                if 0 != child_inode {
+                    let name = std::str::from_utf8(&name).map_err(|e|
+                        parse_error(format!("invalid utf-8 in file name: {}", e)))?;
+
+                    if "." != name && ".." != name {
+                        dirs.push(DirEntry {
+                            inode: child_inode,
+                            name: name.to_string(),
+                            file_type: match file_type {
+                                1 => FileType::RegularFile,
+                                2 => FileType::Directory,
+                                3 => FileType::CharacterDevice,
+                                4 => FileType::BlockDevice,
+                                5 => FileType::Fifo,
+                                6 => FileType::Socket,
+                                7 => FileType::SymbolicLink,
+                                _ => unreachable!(),
+                            }
+                        });
+                    }
+                }
+
+                read += rec_len;
+                if read >= to_read {
+                    assert_eq!(read, to_read);
+                    break;
+                }
             }
         }
 
-        Ok(Fs {
-            block_size,
-        })
+        Ok(dirs)
+    }
+
+    fn walk<R>(&self, mut inner: &mut R, inode: u32, path: String) -> io::Result<()>
+        where R: io::Read + io::Seek {
+        for entry in self.read_directory(&mut inner, inode)? {
+            if entry.file_type == FileType::Directory {
+                self.walk(inner, entry.inode, format!("{}/{}", path, entry.name))?;
+            } else {
+                println!("{}/{} {:?}", path, entry.name, entry.file_type);
+            }
+        }
+        Ok(())
     }
 }
 
@@ -537,7 +578,9 @@ mod tests {
         // s losetup -P -f --show ubuntu-16.04-preinstalled-server-armhf+raspi3.img
         // s chmod a+r /dev/loop0p2
         let file = fs::File::open("/dev/loop0p2").expect("device setup");
-        ::Fs::new(&mut io::BufReader::new(file)).expect("success");
+        let mut r = io::BufReader::new(file);
+        let superblock = ::SuperBlock::load(&mut r).expect("success");
+        superblock.walk(&mut r, 2, "".to_string()).expect("success");
     }
 }
 
