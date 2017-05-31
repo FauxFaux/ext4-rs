@@ -9,6 +9,7 @@ use std::io;
 
 use byteorder::{ReadBytesExt, LittleEndian};
 
+use enum_traits::Discriminant;
 use enum_traits::FromIndex;
 use enum_traits::Index;
 use enum_traits::Iterable;
@@ -19,7 +20,7 @@ const EXT4_SUPER_MAGIC: u16 = 0xEF53;
 const EXT4_BLOCK_GROUP_INODES_UNUSED: u16 = 0b1;
 const EXT4_BLOCK_GROUP_BLOCKS_UNUSED: u16 = 0b10;
 
-#[derive(Debug, PartialEq, EnumIndex, EnumFromIndex, EnumToIndex, EnumLen, EnumIter)]
+#[derive(Debug, PartialEq, EnumIndex, EnumToIndex, EnumFromIndex, EnumLen, EnumIter)]
 enum IncompatibleFeature {
     Compression,
     FileType,
@@ -57,6 +58,39 @@ impl IncompatibleFeature {
             }
         }
         features
+    }
+}
+
+#[derive(Debug, PartialEq, EnumIndex, EnumLen, EnumIter)]
+enum FileModes {
+    OX,
+    OW,
+    OR,
+    GX,
+    GW,
+    GR,
+    UX,
+    UW,
+    UR,
+    Sticky,
+    SetGid,
+    SetUid,
+}
+
+#[derive(Debug, PartialEq, EnumDiscriminant)]
+enum FileType {
+    Fifo            = 0x1000, // S_IFIFO (FIFO)
+    CharacterDevice = 0x2000, // S_IFCHR (Character device)
+    Directory       = 0x4000, // S_IFDIR (Directory)
+    BlockDevice     = 0x6000, // S_IFBLK (Block device)
+    RegularFile     = 0x8000, // S_IFREG (Regular file)
+    SymbolicLink    = 0xA000, // S_IFLNK (Symbolic link)
+    Socket          = 0xC000, // S_IFSOCK (Socket)
+}
+
+impl FileType {
+    fn from_mode(mode: u16) -> Option<FileType> {
+        FileType::from_discriminant((mode & 0xF000) as usize)
     }
 }
 
@@ -313,8 +347,7 @@ impl Fs {
             bitmap.resize((s_inodes_per_group / 8) as usize, 0);
             inner.read_exact(&mut bitmap);
 
-            println!("{:b}", bitmap[1]);
-            println!("                                ma ma en en mx mx de de ge ge ge ge bl bl bl bl le le po po po po po po");
+            println!("{:b}", bitmap[0]);
 
             inner.seek(io::SeekFrom::Start(block_size as u64 * group.inode_table_block))?;
             for i in 0..s_inodes_per_group {
@@ -393,7 +426,15 @@ impl Fs {
                     continue;
                 }
 
-                println!("{} {} {:16b} {:?}", i_atime, i_extra_isize, i_mode, i_block.iter().map(|b| format!("{:02x} ", b)).collect::<String>());
+                let extracted_type = FileType::from_mode(i_mode)
+                    .ok_or_else(|| parse_error(format!("unexpected file type in mode: {:b}", i_mode)))?;
+
+                if FileType::Directory != extracted_type {
+                    continue;
+                }
+
+                println!("{} {:16b} {:?}", i_atime, i_extra_isize, i_mode, );
+                // i_block.iter().map(|b| format!("{:02x} ", b)).collect::<String>()
 
                 if i_flags & 0x00080000 == 0 {
                     return Err(parse_error("inode without extents".to_string()));
@@ -414,15 +455,11 @@ impl Fs {
                     let ee_start_hi = as_u16(&extent[6..]);
                     let ee_start_lo = as_u32(&extent[8..]);
                     let ee_start = ee_start_lo as u64 + 0x1000 * ee_start_hi as u64;
-                    assert_eq!(0, ee_block);
+//                    assert_eq!(0, ee_block);
                     dirs.push(Extent {
                         start: ee_start,
                         len: ee_len,
                     });
-                }
-
-                if i > 2 {
-                    break;
                 }
             }
         }
