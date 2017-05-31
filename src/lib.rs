@@ -1,45 +1,64 @@
+#![feature(associated_consts)] // for enum only
+
 extern crate byteorder;
+extern crate enum_traits;
+#[macro_use] extern crate enum_traits_macros;
 
 use std::fmt;
 use std::io;
 
 use byteorder::{ReadBytesExt, LittleEndian};
 
+use enum_traits::FromIndex;
+use enum_traits::Index;
+use enum_traits::Iterable;
+use enum_traits::ToIndex;
+
 const EXT4_SUPER_MAGIC: u16 = 0xEF53;
 
 const EXT4_BLOCK_GROUP_INODES_UNUSED: u16 = 0b1;
 const EXT4_BLOCK_GROUP_BLOCKS_UNUSED: u16 = 0b10;
 
-const INCOMPAT_FILE_TYPE: u8 = 1;
-const INCOMPAT_EXTENTS: u8 = 6;
-const INCOMPAT_FLEX_BG: u8 = 9;
-
-fn incompatible_feature_name(id: u8) -> String {
-    match id {
-        0 => "Compression",
-        INCOMPAT_FILE_TYPE => "FileType",
-        2 => "RecoveryNeeded",
-        3 => "JournalDevice",
-        4 => "MetaBG",
-
-        INCOMPAT_FILE_TYPE => "Extents",
-        7 => "64Bit",
-        8 => "MMP",
-        INCOMPAT_FLEX_BG => "FlexBg",
-        10 => "EaInode",
-        12 => "DirData",
-        13 => "CsumSeed",
-        14 => "LargeDir",
-        15 => "InlineData",
-        16 => "Encryption",
-        unknown => return format!("unknown incompat feature id {}", unknown)
-    }.to_string()
+#[derive(Debug, PartialEq, EnumIndex, EnumFromIndex, EnumToIndex, EnumLen, EnumIter)]
+enum IncompatibleFeature {
+    Compression,
+    FileType,
+    RecoveryNeeded,
+    JournalDevice,
+    MetaBG,
+    Reserved1,
+    Extents,
+    SixtyFourBit,
+    MMP,
+    FlexBg,
+    EaInode,
+    Reserved2,
+    DirData,
+    CsumSeed,
+    LargeDir,
+    InlineData,
+    Encryption,
+    Unknown,
 }
 
-const SUPPORTED_INCOMPATIBLE_FEATURES: u32 =
-    (1 << INCOMPAT_FILE_TYPE)
-        | (1 << INCOMPAT_EXTENTS)
-        | (1 << INCOMPAT_FLEX_BG);
+impl IncompatibleFeature {
+    fn lookup(id: u8) -> IncompatibleFeature {
+        IncompatibleFeature::from_index(id)
+            .unwrap_or(IncompatibleFeature::Unknown)
+    }
+
+    fn from_bitset(bits: u32) -> Vec<IncompatibleFeature> {
+        let len = IncompatibleFeature::Unknown.into_index();
+        let mut features = Vec::with_capacity(len as usize);
+
+        for val in IncompatibleFeature::variants() {
+            if 0 != bits & (1 << val.index()) {
+                features.push(val);
+            }
+        }
+        features
+    }
+}
 
 #[derive(Debug)]
 struct BlockGroup {
@@ -197,14 +216,15 @@ impl Fs {
             }
         };
 
-        if SUPPORTED_INCOMPATIBLE_FEATURES != s_feature_incompat {
-            let mut msg = "some unsupported incompatible feature flags: ".to_string();
-            for i in 0..17 {
-                if 0 != s_feature_incompat & (1 << i) {
-                    msg += incompatible_feature_name(i).as_str();
-                }
-            }
-            return Err(parse_error(msg));
+        let incompatible_features = IncompatibleFeature::from_bitset(s_feature_incompat);
+        let supported_compatible_features = vec![
+            IncompatibleFeature::FileType,
+            IncompatibleFeature::Extents,
+            IncompatibleFeature::FlexBg
+        ];
+
+        if supported_compatible_features != incompatible_features {
+            return Err(parse_error(format!("some unsupported incompatible feature flags: {:?}", incompatible_features)));
         }
 
         // 64-bit mode isn't enabled (in the incompat features),
