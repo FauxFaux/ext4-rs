@@ -96,6 +96,7 @@ impl FileType {
 
 #[derive(Debug)]
 struct BlockGroup {
+    number: u64,
     block_bitmap_block: u64,
     inode_bitmap_block: u64,
     inode_table_block: u64,
@@ -239,8 +240,6 @@ impl Fs {
             return Err(parse_error(format!("invalid magic number: {:x} should be {:x}", EXT4_SUPER_MAGIC, s_magic)));
         }
 
-        println!("{:?}", std::str::from_utf8(&mut s_last_mounted));
-
         let block_size: u16 = match s_log_block_size {
             1 => 2048,
             2 => 4096,
@@ -333,6 +332,7 @@ impl Fs {
             let inode_table_block: u64 = bg_inode_table_lo as u64;
 
             groups.push(BlockGroup {
+                number: block as u64,
                 block_bitmap_block,
                 inode_bitmap_block,
                 inode_table_block
@@ -347,10 +347,12 @@ impl Fs {
             bitmap.resize((s_inodes_per_group / 8) as usize, 0);
             inner.read_exact(&mut bitmap);
 
-            println!("{:b}", bitmap[0]);
-
             inner.seek(io::SeekFrom::Start(block_size as u64 * group.inode_table_block))?;
-            for i in 0..s_inodes_per_group {
+            for inode_idx in 0..s_inodes_per_group {
+                if bitmap[(inode_idx / 8) as usize] & (1 << (inode_idx % 8)) == 0 {
+                    continue;
+                }
+
                 let i_mode =
                     inner.read_u16::<LittleEndian>()?; /* File mode */
                 let i_uid =
@@ -422,19 +424,29 @@ impl Fs {
                         inner.read_u32::<LittleEndian>()?; /* Project ID */
                 }
 
-                if 0 == i_flags {
+                if 0 == i_mode {
+                    // Look, I don't know why these exist. I'm pretty sure it's not a desync, at least for my test files.
+                    // I can't see why e2fsck skips them, and it makes me sad. They have all kind of obfuscation layers.
+                    // I'm just going to ignore it for now.
                     continue;
                 }
 
                 let extracted_type = FileType::from_mode(i_mode)
                     .ok_or_else(|| parse_error(format!("unexpected file type in mode: {:b}", i_mode)))?;
 
-                if FileType::Directory != extracted_type {
-                    continue;
-                }
-
-                println!("{} {:16b} {:?}", i_atime, i_extra_isize, i_mode, );
+                println!("{:02}:{:06}: atime {} mode {:04o} type {:?} len {}",
+                         group.number, inode_idx + 1,
+                         i_atime, i_mode & 0b111_111_111_111,
+                         extracted_type,
+                         i_size_lo);
                 // i_block.iter().map(|b| format!("{:02x} ", b)).collect::<String>()
+
+                if 0 == i_flags {
+                    inner.seek(io::SeekFrom::Current(-256))?;
+                    let mut buf = [0; 256];
+                    inner.read_exact(&mut buf)?;
+                    dbg(&buf);
+                }
 
                 if i_flags & 0x00080000 == 0 {
                     return Err(parse_error("inode without extents".to_string()));
@@ -458,7 +470,16 @@ impl Fs {
                     let ee_start_hi = as_u16(&extent[6..]);
                     let ee_start_lo = as_u32(&extent[8..]);
                     let ee_start = ee_start_lo as u64 + 0x1000 * ee_start_hi as u64;
-//                    assert_eq!(0, ee_block);
+
+                    if FileType::Directory != extracted_type {
+                        continue;
+                    }
+
+                    if 0 != ee_block {
+                        println!("TODO: have we found follow-on parts of a directory?");
+                        continue;
+                    }
+
                     dirs.push(Extent {
                         start: ee_start,
                         len: ee_len,
@@ -470,7 +491,7 @@ impl Fs {
         for dir in dirs {
             inner.seek(io::SeekFrom::Start(block_size as u64 * dir.start))?;
             for i in 0..20 {
-                let inode = inner.read_u32::<LittleEndian>()?;
+                let child_inode = inner.read_u32::<LittleEndian>()?;
                 let rec_len = inner.read_u16::<LittleEndian>()?;
                 let name_len = inner.read_u8()?;
                 let file_type = inner.read_u8()?;
@@ -478,7 +499,7 @@ impl Fs {
                 name.resize(name_len as usize, 0);
                 inner.read(&mut name)?;
                 inner.seek(io::SeekFrom::Current(rec_len as i64 - name_len as i64  - 4 - 2 - 2))?;
-                println!("{} {:x} {} {} {:?}", dir.start, file_type, inode, rec_len, std::str::from_utf8(&name));
+//                println!("{} {:x} {} {} {:?}", dir.start, file_type, child_inode, rec_len, std::str::from_utf8(&name));
             }
         }
 
@@ -487,6 +508,16 @@ impl Fs {
         })
     }
 }
+
+fn dbg(buf: &[u8]) {
+    let bytes_per_line = 32;
+    for i in 0..buf.len() / bytes_per_line {
+        println!("TODO: {}", &buf[i * bytes_per_line..(i + 1) * bytes_per_line]
+            .iter().map(|b| if 0 == *b { " . ".to_string() } else { format!("{:02x} ", b) })
+            .collect::<String>());
+    }
+}
+
 
 fn as_u16(buf: &[u8]) -> u16 {
     buf[0] as u16 + buf[1] as u16 * 0x100
