@@ -112,8 +112,18 @@ struct Extent {
 }
 
 #[derive(Debug)]
-struct MemInode {
+struct Inode {
     extracted_type: FileType,
+    file_mode: u16,
+    uid: u32,
+    gid: u32,
+    size: u64,
+    atime: Time,
+    ctime: Time,
+    mtime: Time,
+    btime: Option<Time>,
+    link_count: u16,
+    extents: Vec<Extent>,
     data: Vec<u8>,
 }
 
@@ -371,7 +381,7 @@ impl SuperBlock {
         })
     }
 
-    fn load_content<R>(&self, inner: &mut R, inode: u32) -> io::Result<MemInode>
+    fn load_inode<R>(&self, inner: &mut R, inode: u32) -> io::Result<Inode>
         where R: io::Read + io::Seek {
 
         assert_ne!(0, inode);
@@ -412,7 +422,7 @@ impl SuperBlock {
                 inner.read_u32::<LittleEndian>()?; /* Deletion Time */
             let i_gid =
                 inner.read_u16::<LittleEndian>()?; /* Low 16 bits of Group Id */
-//            let i_links_count =
+            let i_links_count =
                 inner.read_u16::<LittleEndian>()?; /* Links count */
 //            let i_blocks_lo =
                 inner.read_u32::<LittleEndian>()?; /* Blocks count */
@@ -516,6 +526,8 @@ impl SuperBlock {
                 epoch_secs,
                 nanos: i_crtime_extra,
             });
+
+            link_count = i_links_count;
         }
 
         let block = block;
@@ -545,7 +557,7 @@ impl SuperBlock {
         let mut ret = Vec::with_capacity(size);
 
         let mut last_block_end = 0;
-        for extent in extents {
+        for extent in &extents {
             ret.resize(self.block_size as usize * (extent.block as usize - last_block_end as usize), 0);
             last_block_end += extent.len;
 
@@ -562,8 +574,18 @@ impl SuperBlock {
             inner.read_exact(&mut ret[old_end..new_end])?;
         }
 
-        Ok(MemInode {
+        Ok(Inode {
             extracted_type,
+            file_mode,
+            uid,
+            gid,
+            size: size as u64,
+            atime,
+            ctime,
+            mtime,
+            btime,
+            link_count,
+            extents,
             data: ret,
         })
     }
@@ -648,7 +670,7 @@ impl SuperBlock {
 
         let mut dirs = Vec::with_capacity(40);
 
-        let content = self.load_content(inner, inode)?;
+        let content = self.load_inode(inner, inode)?;
         let total_len = content.data.len();
         let mut inner = io::Cursor::new(content.data);
         {
@@ -705,7 +727,7 @@ impl SuperBlock {
                 },
                 FileType::RegularFile => {
                     println!("{}/{} file: {}", path, entry.name,
-                             self.load_content(&mut inner, entry.inode)?.data.len());
+                             self.load_inode(&mut inner, entry.inode)?.data.len());
                 },
                 _ => {
                     println!("{}/{} {:?} at {}", path, entry.name, entry.file_type, entry.inode);
