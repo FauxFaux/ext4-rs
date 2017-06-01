@@ -122,6 +122,7 @@ pub struct Inode {
     mtime: Time,
     btime: Option<Time>,
     link_count: u16,
+    flags: u32,
     block: [u8; 4 * 15],
 }
 
@@ -476,11 +477,6 @@ impl SuperBlock {
 
         // TODO: there could be extended attributes to read here
 
-        // if the flags contains any incompatible flags...
-        if i_flags & 0b1101_1111_1111_1110_1010_1011_0000_0100 != 0x00080000 {
-            return Err(parse_error(format!("inode without unsupported flags: {0:x} {0:b}", i_flags)));
-        }
-
         Ok(Inode {
             extracted_type: FileType::from_mode(i_mode)
                 .ok_or_else(|| parse_error(format!("unexpected file type in mode: {:b}", i_mode)))?,
@@ -505,6 +501,7 @@ impl SuperBlock {
                 nanos: i_crtime_extra,
             }),
             link_count: i_links_count,
+            flags: i_flags,
             block,
         })
     }
@@ -607,6 +604,12 @@ impl SuperBlock {
 
         let data = {
             let inode_details = self.load_inode(inner, inode)?;
+
+            // if the flags, minus irrelevant flags, isn't just EXTENTS...
+            if !inode_details.only_relevant_flag_is_extents() {
+                return Err(parse_error(format!("inode without unsupported flags: {0:x} {0:b}", inode_details.flags)));
+            }
+
             let extent_tree = self.load_extent_tree(inner, inode_details.block)?;
             self.load_all(inner, &inode_details, &extent_tree)?
         };
@@ -666,11 +669,20 @@ impl SuperBlock {
                         parse_error(format!("while processing {}: {}", path, e)))?;
                 },
                 FileType::RegularFile => {
-                    println!("{}/{} file: {:?}", path, entry.name,
-                             self.load_inode(&mut inner, entry.inode)?.uid);
+                    let i = self.load_inode(&mut inner, entry.inode)?;
+                    println!("{}/{} <{}> file; atime: {:?}", path, entry.name, entry.inode, i.atime);
                 },
                 FileType::SymbolicLink => {
-                    self.load_inode(&mut inner, entry.inode)?;
+                    let i = self.load_inode(&mut inner, entry.inode)?;
+                    let dest = if i.size < 60 {
+                        assert_eq!(0, i.flags);
+                        std::str::from_utf8(&i.block[0..i.size as usize]).expect("utf-8").to_string()
+                    } else {
+                        assert!(i.only_relevant_flag_is_extents());
+                        let extents = self.load_extent_tree(inner, i.block)?;
+                        std::str::from_utf8(&self.load_all(inner, &i, &extents)?).expect("utf-8").to_string()
+                    };
+                    println!("{}/{} <{}> symlink to: {:?} [{}]", path, entry.name, entry.inode, dest, i.size);
                 }
                 _ => {
                     println!("{}/{} {:?} at {}", path, entry.name, entry.file_type, entry.inode);
@@ -707,6 +719,12 @@ impl SuperBlock {
         }
 
         Ok(ret)
+    }
+}
+
+impl Inode {
+    fn only_relevant_flag_is_extents(&self) -> bool {
+        self.flags & 0b1101_1111_1111_1110_1010_1011_0000_0100 == 0x00080000
     }
 }
 
