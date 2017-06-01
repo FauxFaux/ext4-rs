@@ -16,6 +16,9 @@ use enum_traits::Index;
 use enum_traits::Iterable;
 use enum_traits::ToIndex;
 
+use std::io::Read;
+use std::io::Seek;
+
 const EXT4_SUPER_MAGIC: u16 = 0xEF53;
 
 const EXT4_BLOCK_GROUP_INODES_UNUSED: u16 = 0b1;
@@ -107,6 +110,12 @@ struct Extent {
     block: u32,
     start: u64,
     len: u16,
+}
+
+#[derive(Debug)]
+struct MemInode {
+    extracted_type: FileType,
+    data: Vec<u8>,
 }
 
 #[derive(Debug)]
@@ -362,8 +371,8 @@ impl SuperBlock {
         })
     }
 
-    fn read_directory<R>(&self, inner: &mut R, inode: u32) -> io::Result<Vec<DirEntry>>
-    where R: io::Read + io::Seek {
+    fn load_content<R>(&self, inner: &mut R, inode: u32) -> io::Result<MemInode>
+        where R: io::Read + io::Seek {
         assert_ne!(0, inode);
         let inode = inode - 1;
 
@@ -422,6 +431,8 @@ impl SuperBlock {
 
         inner.seek(io::SeekFrom::Current(self.inode_size as i64 - 128 - 2))?;
 
+        let i_size = (i_size_lo as u64) + ((i_size_high as u64) << 32);
+
         if false {
             let i_checksum_hi =
                 inner.read_u16::<LittleEndian>()?; /* crc32c(uuid+inum+inode) BE */
@@ -453,10 +464,6 @@ impl SuperBlock {
             // i_block.iter().map(|b| format!("{:02x} ", b)).collect::<String>()
         }
 
-        if FileType::Directory != extracted_type {
-            panic!("not a directory");
-        }
-
         if 0 == i_flags {
             inner.seek(io::SeekFrom::Current(-256))?;
             let mut buf = [0; 256];
@@ -478,7 +485,7 @@ impl SuperBlock {
             panic!("TODO: extent tree which is actually a tree");
         }
 
-        let mut dirs = Vec::with_capacity(40);
+        let mut extent_count = 0u64;
 
         let mut extents = Vec::with_capacity(extent_entries as usize);
         for en in 0..extent_entries {
@@ -489,6 +496,8 @@ impl SuperBlock {
             let ee_start_lo = as_u32(&extent[8..]);
             let ee_start = ee_start_lo as u64 + 0x1000 * ee_start_hi as u64;
 
+            extent_count += ee_len as u64;
+
             extents.push(Extent {
                 block: ee_block,
                 start: ee_start,
@@ -498,12 +507,46 @@ impl SuperBlock {
 
         extents.sort_by_key(|e| e.block);
 
-        for extent in extents {
 
-            let to_read = extent.len as u64 * self.block_size as u64;
+        let total_bytes = extent_count * self.block_size as u64;
+
+        assert!(total_bytes >= i_size, "{} extents gives {} bytes, but the size is {}",
+                extent_count, total_bytes, i_size);
+        assert!(total_bytes < std::usize::MAX as u64);
+
+        let mut ret = Vec::with_capacity(i_size as usize);
+
+        for extent in extents {
+            let to_read = std::cmp::min(
+                extent.len as u64 * self.block_size as u64,
+                (ret.capacity() - ret.len()) as u64);
 
             inner.seek(io::SeekFrom::Start(self.block_size as u64 * extent.start))?;
-            let mut read = 0u64;
+            let old_end = ret.len();
+            let new_end = old_end as u64 + to_read;
+            assert!(new_end < std::usize::MAX as u64);
+            let new_end = new_end as usize;
+            ret.resize(new_end, 0u8);
+            inner.read_exact(&mut ret[old_end..new_end])?;
+        }
+
+        Ok(MemInode {
+            extracted_type,
+            data: ret,
+
+        })
+    }
+
+    fn read_directory<R>(&self, inner: &mut R, inode: u32) -> io::Result<Vec<DirEntry>>
+    where R: io::Read + io::Seek {
+
+        let mut dirs = Vec::with_capacity(40);
+
+        let content = self.load_content(inner, inode)?;
+        let total_len = content.data.len();
+        let mut inner = io::Cursor::new(content.data);
+        {
+            let mut read = 0usize;
             loop {
                 let child_inode = inner.read_u32::<LittleEndian>()?;
                 let rec_len = inner.read_u16::<LittleEndian>()?;
@@ -535,9 +578,9 @@ impl SuperBlock {
                     }
                 }
 
-                read += rec_len as u64;
-                if read >= to_read {
-                    assert_eq!(read, to_read);
+                read += rec_len as usize;
+                if read >= total_len {
+                    assert_eq!(read, total_len);
                     break;
                 }
             }
@@ -549,11 +592,18 @@ impl SuperBlock {
     fn walk<R>(&self, mut inner: &mut R, inode: u32, path: String) -> io::Result<()>
         where R: io::Read + io::Seek {
         for entry in self.read_directory(&mut inner, inode)? {
-            if entry.file_type == FileType::Directory {
-                self.walk(inner, entry.inode, format!("{}/{}", path, entry.name)).map_err(|e|
+            match entry.file_type {
+                FileType::Directory => {
+                    self.walk(inner, entry.inode, format!("{}/{}", path, entry.name)).map_err(|e|
                         parse_error(format!("while processing {}: {}", path, e)))?;
-            } else {
-                println!("{}/{} {:?}", path, entry.name, entry.file_type);
+                },
+                FileType::RegularFile => {
+                    println!("{}/{} file: {}", path, entry.name,
+                             self.load_content(&mut inner, entry.inode)?.data.len());
+                },
+                _ => {
+                    println!("{}/{} {:?} at {}", path, entry.name, entry.file_type, entry.inode);
+                }
             }
         }
         Ok(())
