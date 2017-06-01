@@ -60,6 +60,19 @@ impl FileType {
             _ => None,
         }
     }
+
+    fn from_dir_hint(hint: u8) -> Option<FileType> {
+        match hint {
+            1 => Some(FileType::RegularFile),
+            2 => Some(FileType::Directory),
+            3 => Some(FileType::CharacterDevice),
+            4 => Some(FileType::BlockDevice),
+            5 => Some(FileType::Fifo),
+            6 => Some(FileType::Socket),
+            7 => Some(FileType::SymbolicLink),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -599,16 +612,8 @@ impl SuperBlock {
                         dirs.push(DirEntry {
                             inode: child_inode,
                             name: name.to_string(),
-                            file_type: match file_type {
-                                1 => FileType::RegularFile,
-                                2 => FileType::Directory,
-                                3 => FileType::CharacterDevice,
-                                4 => FileType::BlockDevice,
-                                5 => FileType::Fifo,
-                                6 => FileType::Socket,
-                                7 => FileType::SymbolicLink,
-                                _ => panic!("unknown type in {} @ {}", name, child_inode),
-                            }
+                            file_type: FileType::from_dir_hint(file_type)
+                                .expect("valid file type"),
                         });
                     }
                 }
