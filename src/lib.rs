@@ -1,19 +1,12 @@
 #![feature(associated_consts)] // for enum only
 
+#[macro_use] extern crate bitflags;
 extern crate byteorder;
-extern crate enum_traits;
-#[macro_use] extern crate enum_traits_macros;
 
 use std::io;
 use std::collections::HashMap;
 
 use byteorder::{ReadBytesExt, LittleEndian, BigEndian};
-
-use enum_traits::Discriminant;
-use enum_traits::FromIndex;
-use enum_traits::Index;
-use enum_traits::Iterable;
-use enum_traits::ToIndex;
 
 use std::io::Read;
 use std::io::Seek;
@@ -23,44 +16,23 @@ const EXT4_SUPER_MAGIC: u16 = 0xEF53;
 const EXT4_BLOCK_GROUP_INODES_UNUSED: u16 = 0b1;
 const EXT4_BLOCK_GROUP_BLOCKS_UNUSED: u16 = 0b10;
 
-#[derive(Debug, PartialEq, EnumIndex, EnumToIndex, EnumFromIndex, EnumLen, EnumIter)]
-enum IncompatibleFeature {
-    Compression,
-    FileType,
-    RecoveryNeeded,
-    JournalDevice,
-    MetaBG,
-    Reserved1,
-    Extents,
-    SixtyFourBit,
-    MMP,
-    FlexBg,
-    EaInode,
-    Reserved2,
-    DirData,
-    CsumSeed,
-    LargeDir,
-    InlineData,
-    Encryption,
-    Unknown,
-}
-
-impl IncompatibleFeature {
-    fn lookup(id: u8) -> IncompatibleFeature {
-        IncompatibleFeature::from_index(id)
-            .unwrap_or(IncompatibleFeature::Unknown)
-    }
-
-    fn from_bitset(bits: u32) -> Vec<IncompatibleFeature> {
-        let len = IncompatibleFeature::Unknown.into_index();
-        let mut features = Vec::with_capacity(len as usize);
-
-        for val in IncompatibleFeature::variants() {
-            if 0 != bits & (1 << val.index()) {
-                features.push(val);
-            }
-        }
-        features
+bitflags! {
+    struct IncompatibleFeature: u32 {
+       const INCOMPAT_COMPRESSION = 0x0001;
+       const INCOMPAT_FILETYPE    = 0x0002;
+       const INCOMPAT_RECOVER     = 0x0004; /* Needs recovery */
+       const INCOMPAT_JOURNAL_DEV = 0x0008; /* Journal device */
+       const INCOMPAT_META_BG     = 0x0010;
+       const INCOMPAT_EXTENTS     = 0x0040; /* extents support */
+       const INCOMPAT_64BIT       = 0x0080;
+       const INCOMPAT_MMP         = 0x0100;
+       const INCOMPAT_FLEX_BG     = 0x0200;
+       const INCOMPAT_EA_INODE    = 0x0400; /* EA in inode */
+       const INCOMPAT_DIRDATA     = 0x1000; /* data in dirent */
+       const INCOMPAT_CSUM_SEED   = 0x2000;
+       const INCOMPAT_LARGEDIR    = 0x4000; /* >2GB or 3-lvl htree */
+       const INCOMPAT_INLINE_DATA = 0x8000; /* data in inode */
+       const INCOMPAT_ENCRYPT     = 0x10000;
     }
 }
 
@@ -274,12 +246,13 @@ impl SuperBlock {
             }
         };
 
-        let incompatible_features = IncompatibleFeature::from_bitset(s_feature_incompat);
-        let supported_compatible_features = vec![
-            IncompatibleFeature::FileType,
-            IncompatibleFeature::Extents,
-            IncompatibleFeature::FlexBg
-        ];
+        let incompatible_features = IncompatibleFeature::from_bits(s_feature_incompat)
+            .ok_or_else(|| parse_error(format!("completely unsupported feature flag: {:b}", s_feature_incompat)))?;
+
+        let supported_compatible_features =
+            INCOMPAT_FILETYPE
+            | INCOMPAT_EXTENTS
+            | INCOMPAT_FLEX_BG;
 
         if supported_compatible_features != incompatible_features {
             return Err(parse_error(format!("some unsupported incompatible feature flags: {:?}", incompatible_features)));

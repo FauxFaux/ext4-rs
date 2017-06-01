@@ -4,6 +4,5 @@ version = "0.1.0"
 authors = ["Chris West (Faux) <git@goeswhere.com>"]
 
 [dependencies]
+bitflags = "0.9.1"
 byteorder = "1.0.0"
-enum_traits = "0.3.0"
-enum_traits_macros = "2.0.0"
