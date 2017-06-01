@@ -495,7 +495,8 @@ impl SuperBlock {
 
             size = (i_size_lo as u64) + ((i_size_high as u64) << 32);
 
-            if i_flags != 0x00080000 {
+            // if the flags contains any incompatible flags...
+            if i_flags & 0b1101_1111_1111_1110_1010_1011_0000_0100 != 0x00080000 {
                 return Err(parse_error(format!("inode without unsupported flags: {0:x} {0:b}", i_flags)));
             }
 
@@ -541,49 +542,21 @@ impl SuperBlock {
 //            dbg(&buf);
 //        }
 
+        let extents: Vec<Extent> = self.load_extent_tree(inner, block)?;
 
-        assert_eq!(0x0a, block[0]);
-        assert_eq!(0xf3, block[1]);
+        let extent_count: u64 = extents.iter().map(|extent| extent.len as u64).sum();
 
-        let extent_entries = as_u16(&block[2..]);
-        let depth = as_u16(&block[6..]);
+        assert!(size < std::usize::MAX as u64);
 
-        if 0 != depth {
-            panic!("TODO: extent tree which is actually a tree");
-        }
+        let size = size as usize;
 
-        let mut extent_count = 0u64;
+        let mut ret = Vec::with_capacity(size);
 
-        let mut extents = Vec::with_capacity(extent_entries as usize);
-        for en in 0..extent_entries {
-            let extent = &block[12 + en as usize * 12..];
-            let ee_block = as_u32(extent);
-            let ee_len = as_u16(&extent[4..]);
-            let ee_start_hi = as_u16(&extent[6..]);
-            let ee_start_lo = as_u32(&extent[8..]);
-            let ee_start = ee_start_lo as u64 + 0x1000 * ee_start_hi as u64;
-
-            extent_count += ee_len as u64;
-
-            extents.push(Extent {
-                block: ee_block,
-                start: ee_start,
-                len: ee_len,
-            });
-        }
-
-        extents.sort_by_key(|e| e.block);
-
-
-        let total_bytes = extent_count * self.block_size as u64;
-
-        assert!(total_bytes >= size, "{} extents gives {} bytes, but the size is {}",
-                extent_count, total_bytes, size);
-        assert!(total_bytes < std::usize::MAX as u64);
-
-        let mut ret = Vec::with_capacity(size as usize);
-
+        let mut last_block_end = 0;
         for extent in extents {
+            ret.resize(self.block_size as usize * (extent.block as usize - last_block_end as usize), 0);
+            last_block_end += extent.len;
+
             let to_read = std::cmp::min(
                 extent.len as u64 * self.block_size as u64,
                 (ret.capacity() - ret.len()) as u64);
@@ -600,9 +573,83 @@ impl SuperBlock {
         Ok(MemInode {
             extracted_type,
             data: ret,
-
         })
     }
+
+
+    fn add_found_extents<R>(
+        &self,
+        inner: &mut R,
+        block: &[u8],
+        expected_depth: u16,
+        extents: &mut Vec<Extent>) -> io::Result<()>
+    where R: io::Read + io::Seek {
+
+        assert_eq!(0x0a, block[0]);
+        assert_eq!(0xf3, block[1]);
+
+        let extent_entries = as_u16(&block[2..]);
+        // 4..: max; doesn't seem to be useful during read
+        let depth = as_u16(&block[6..]);
+        // 8..: generation, not used in standard ext4
+
+        assert_eq!(expected_depth, depth);
+
+        if 0 == depth {
+            for en in 0..extent_entries {
+                let raw_extent = &block[12 + en as usize * 12..];
+                let ee_block = as_u32(raw_extent);
+                let ee_len = as_u16(&raw_extent[4..]);
+                let ee_start_hi = as_u16(&raw_extent[6..]);
+                let ee_start_lo = as_u32(&raw_extent[8..]);
+                let ee_start = ee_start_lo as u64 + 0x1000 * ee_start_hi as u64;
+
+                extents.push(Extent {
+                    block: ee_block,
+                    start: ee_start,
+                    len: ee_len,
+                });
+            }
+
+            return Ok(());
+        }
+
+        for en in 0..extent_entries {
+            let extent_idx = &block[12 + en as usize * 12..];
+            let ei_block = as_u32(extent_idx);
+            let ei_leaf_lo = as_u32(&extent_idx[4..]);
+            let ei_leaf_hi = as_u16(&extent_idx[8..]);
+            let ee_leaf: u64 = ei_leaf_lo as u64 + ((ei_leaf_hi as u64) << 32);
+            inner.seek(io::SeekFrom::Start(self.block_size as u64 * ee_leaf))?;
+            let mut block = vec![0u8; self.block_size as usize];
+            inner.read_exact(&mut block);
+            self.add_found_extents(inner, &block, depth - 1, extents)?;
+        }
+
+        Ok(())
+    }
+
+    fn load_extent_tree<R>(&self, inner: &mut R, start: [u8; 4 * 15]) -> io::Result<Vec<Extent>>
+    where R: io::Read + io::Seek {
+        assert_eq!(0x0a, start[0]);
+        assert_eq!(0xf3, start[1]);
+
+        let extent_entries = as_u16(&start[2..]);
+        // 4..: max; doesn't seem to be useful during read
+        let depth = as_u16(&start[6..]);
+
+        assert!(depth <= 5);
+
+        let mut extents = Vec::with_capacity(extent_entries as usize + depth as usize * 200);
+
+        self.add_found_extents(inner, &start, depth, &mut extents)?;
+
+        extents.sort_by_key(|e| e.block);
+
+        Ok(extents)
+    }
+
+
 
     fn read_directory<R>(&self, inner: &mut R, inode: u32) -> io::Result<Vec<DirEntry>>
     where R: io::Read + io::Seek {
@@ -639,7 +686,7 @@ impl SuperBlock {
                                 5 => FileType::Fifo,
                                 6 => FileType::Socket,
                                 7 => FileType::SymbolicLink,
-                                _ => unreachable!(),
+                                _ => panic!("unknown type in {} @ {}", name, child_inode),
                             }
                         });
                     }
