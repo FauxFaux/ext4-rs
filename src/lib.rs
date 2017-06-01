@@ -104,6 +104,7 @@ struct DirEntry {
 
 #[derive(Debug)]
 struct Extent {
+    block: u32,
     start: u64,
     len: u16,
 }
@@ -479,22 +480,29 @@ impl SuperBlock {
 
         let mut dirs = Vec::with_capacity(40);
 
+        let mut extents = Vec::with_capacity(extent_entries as usize);
         for en in 0..extent_entries {
-            let extent = &i_block[12+en as usize*12 ..];
+            let extent = &i_block[12 + en as usize * 12..];
             let ee_block = as_u32(extent);
             let ee_len = as_u16(&extent[4..]);
             let ee_start_hi = as_u16(&extent[6..]);
             let ee_start_lo = as_u32(&extent[8..]);
             let ee_start = ee_start_lo as u64 + 0x1000 * ee_start_hi as u64;
 
-            if 0 != ee_block {
-                return Err(parse_error(format!("TODO: have we found follow-on parts ({}) of a directory? {} / {} in <{}>",
-                            ee_block, en, extent_entries, inode + 1)));
-            }
+            extents.push(Extent {
+                block: ee_block,
+                start: ee_start,
+                len: ee_len,
+            });
+        }
 
-            let to_read = ee_len as u64 * self.block_size as u64;
+        extents.sort_by_key(|e| e.block);
 
-            inner.seek(io::SeekFrom::Start(self.block_size as u64 * ee_start))?;
+        for extent in extents {
+
+            let to_read = extent.len as u64 * self.block_size as u64;
+
+            inner.seek(io::SeekFrom::Start(self.block_size as u64 * extent.start))?;
             let mut read = 0u64;
             loop {
                 let child_inode = inner.read_u32::<LittleEndian>()?;
