@@ -64,36 +64,29 @@ impl IncompatibleFeature {
     }
 }
 
-#[derive(Debug, PartialEq, EnumIndex, EnumLen, EnumIter)]
-enum FileModes {
-    OX,
-    OW,
-    OR,
-    GX,
-    GW,
-    GR,
-    UX,
-    UW,
-    UR,
-    Sticky,
-    SetGid,
-    SetUid,
-}
-
-#[derive(Debug, PartialEq, EnumDiscriminant)]
+#[derive(Debug, PartialEq)]
 enum FileType {
-    Fifo            = 0x1000, // S_IFIFO (FIFO)
-    CharacterDevice = 0x2000, // S_IFCHR (Character device)
-    Directory       = 0x4000, // S_IFDIR (Directory)
-    BlockDevice     = 0x6000, // S_IFBLK (Block device)
-    RegularFile     = 0x8000, // S_IFREG (Regular file)
-    SymbolicLink    = 0xA000, // S_IFLNK (Symbolic link)
-    Socket          = 0xC000, // S_IFSOCK (Socket)
+    RegularFile,     // S_IFREG (Regular file)
+    SymbolicLink,    // S_IFLNK (Symbolic link)
+    CharacterDevice, // S_IFCHR (Character device)
+    BlockDevice,     // S_IFBLK (Block device)
+    Directory,       // S_IFDIR (Directory)
+    Fifo,            // S_IFIFO (FIFO)
+    Socket,          // S_IFSOCK (Socket)
 }
 
 impl FileType {
     fn from_mode(mode: u16) -> Option<FileType> {
-        FileType::from_discriminant((mode & 0xF000) as usize)
+        match mode >> 12 {
+            0x1 => Some(FileType::Fifo),
+            0x2 => Some(FileType::CharacterDevice),
+            0x4 => Some(FileType::Directory),
+            0x6 => Some(FileType::BlockDevice),
+            0x8 => Some(FileType::RegularFile),
+            0xA => Some(FileType::SymbolicLink),
+            0xC => Some(FileType::Socket),
+            _ => None,
+        }
     }
 }
 
