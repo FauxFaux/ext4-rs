@@ -8,7 +8,7 @@ use std::fmt;
 use std::io;
 use std::collections::HashMap;
 
-use byteorder::{ReadBytesExt, LittleEndian};
+use byteorder::{ReadBytesExt, LittleEndian, BigEndian};
 
 use enum_traits::Discriminant;
 use enum_traits::FromIndex;
@@ -132,6 +132,12 @@ struct SuperBlock {
     inode_size: u16,
     inodes_per_group: u32,
     groups: HashMap<u16, BlockGroup>,
+}
+
+#[derive(Debug)]
+struct Time {
+    epoch_secs: u32,
+    nanos: Option<u32>,
 }
 
 impl SuperBlock {
@@ -373,113 +379,174 @@ impl SuperBlock {
 
     fn load_content<R>(&self, inner: &mut R, inode: u32) -> io::Result<MemInode>
         where R: io::Read + io::Seek {
+
         assert_ne!(0, inode);
-        let inode = inode - 1;
 
-        let block = self.groups[&((inode / self.inodes_per_group) as u16)].inode_table_block;
-        let pos = block * self.block_size as u64 + (inode % self.inodes_per_group) as u64 * self.inode_size as u64;
-        inner.seek(io::SeekFrom::Start(pos))?;
-
-        let i_mode =
-            inner.read_u16::<LittleEndian>()?; /* File mode */
-        let i_uid =
-            inner.read_u16::<LittleEndian>()?; /* Low 16 bits of Owner Uid */
-        let i_size_lo =
-            inner.read_u32::<LittleEndian>()?; /* Size in bytes */
-        let i_atime =
-            inner.read_u32::<LittleEndian>()?; /* Access time */
-        let i_ctime =
-            inner.read_u32::<LittleEndian>()?; /* Inode Change time */
-        let i_mtime =
-            inner.read_u32::<LittleEndian>()?; /* Modification time */
-        let i_dtime =
-            inner.read_u32::<LittleEndian>()?; /* Deletion Time */
-        let i_gid =
-            inner.read_u16::<LittleEndian>()?; /* Low 16 bits of Group Id */
-        let i_links_count =
-            inner.read_u16::<LittleEndian>()?; /* Links count */
-        let i_blocks_lo =
-            inner.read_u32::<LittleEndian>()?; /* Blocks count */
-        let i_flags =
-            inner.read_u32::<LittleEndian>()?; /* File flags */
-        let l_i_version =
-            inner.read_u32::<LittleEndian>()?;
-        let mut i_block = [0u8; 15 * 4];
-        inner.read_exact(&mut i_block)?; /* Pointers to blocks */
-        let i_generation =
-            inner.read_u32::<LittleEndian>()?; /* File version (for NFS) */
-        let i_file_acl_lo =
-            inner.read_u32::<LittleEndian>()?; /* File ACL */
-        let i_size_high =
-            inner.read_u32::<LittleEndian>()?;
-        let i_obso_faddr =
-            inner.read_u32::<LittleEndian>()?; /* Obsoleted fragment address */
-        let l_i_blocks_high =
-            inner.read_u16::<LittleEndian>()?; /* were l_i_reserved1 */
-        let l_i_file_acl_high =
-            inner.read_u16::<LittleEndian>()?;
-        let l_i_uid_high =
-            inner.read_u16::<LittleEndian>()?; /* these 2 fields */
-        let l_i_gid_high =
-            inner.read_u16::<LittleEndian>()?; /* were reserved2[0] */
-        let l_i_checksum_lo =
-            inner.read_u16::<LittleEndian>()?; /* crc32c(uuid+inum+inode) LE */
-        let l_i_reserved =
-            inner.read_u16::<LittleEndian>()?;
-        let i_extra_isize =
-            inner.read_u16::<LittleEndian>()?;
-
-        inner.seek(io::SeekFrom::Current(self.inode_size as i64 - 128 - 2))?;
-
-        let i_size = (i_size_lo as u64) + ((i_size_high as u64) << 32);
-
-        if false {
-            let i_checksum_hi =
-                inner.read_u16::<LittleEndian>()?; /* crc32c(uuid+inum+inode) BE */
-            let i_ctime_extra =
-                inner.read_u32::<LittleEndian>()?; /* extra Change time      (nsec << 2 | epoch) */
-            let i_mtime_extra =
-                inner.read_u32::<LittleEndian>()?; /* extra Modification time(nsec << 2 | epoch) */
-            let i_atime_extra =
-                inner.read_u32::<LittleEndian>()?; /* extra Access time      (nsec << 2 | epoch) */
-            let i_crtime =
-                inner.read_u32::<LittleEndian>()?; /* File Creation time */
-            let i_crtime_extra =
-                inner.read_u32::<LittleEndian>()?; /* extra FileCreationtime (nsec << 2 | epoch) */
-            let i_version_hi =
-                inner.read_u32::<LittleEndian>()?; /* high 32 bits for 64-bit version */
-            let i_projid =
-                inner.read_u32::<LittleEndian>()?; /* Project ID */
+        {
+            let inode = inode - 1;
+            let block = self.groups[&((inode / self.inodes_per_group) as u16)].inode_table_block;
+            let pos = block * self.block_size as u64 + (inode % self.inodes_per_group) as u64 * self.inode_size as u64;
+            inner.seek(io::SeekFrom::Start(pos))?;
         }
 
-        let extracted_type = FileType::from_mode(i_mode)
-            .ok_or_else(|| parse_error(format!("unexpected file type in mode: {:b}", i_mode)))?;
+        let extracted_type;
+        let file_mode: u16;
+        let uid: u32;
+        let gid: u32;
+        let size: u64;
+        let atime: Time;
+        let ctime: Time;
+        let mtime: Time;
+        let btime: Option<Time>;
+        let link_count: u16;
+        let mut block = [0u8; 15 * 4];
+
+        {
+            let i_mode =
+                inner.read_u16::<LittleEndian>()?; /* File mode */
+            let i_uid =
+                inner.read_u16::<LittleEndian>()?; /* Low 16 bits of Owner Uid */
+            let i_size_lo =
+                inner.read_u32::<LittleEndian>()?; /* Size in bytes */
+            let i_atime =
+                inner.read_u32::<LittleEndian>()?; /* Access time */
+            let i_ctime =
+                inner.read_u32::<LittleEndian>()?; /* Inode Change time */
+            let i_mtime =
+                inner.read_u32::<LittleEndian>()?; /* Modification time */
+            let i_dtime =
+                inner.read_u32::<LittleEndian>()?; /* Deletion Time */
+            let i_gid =
+                inner.read_u16::<LittleEndian>()?; /* Low 16 bits of Group Id */
+            let i_links_count =
+                inner.read_u16::<LittleEndian>()?; /* Links count */
+            let i_blocks_lo =
+                inner.read_u32::<LittleEndian>()?; /* Blocks count */
+            let i_flags =
+                inner.read_u32::<LittleEndian>()?; /* File flags */
+            let l_i_version =
+                inner.read_u32::<LittleEndian>()?;
+
+            inner.read_exact(&mut block)?; /* Pointers to blocks */
+
+            let i_generation =
+                inner.read_u32::<LittleEndian>()?; /* File version (for NFS) */
+            let i_file_acl_lo =
+                inner.read_u32::<LittleEndian>()?; /* File ACL */
+            let i_size_high =
+                inner.read_u32::<LittleEndian>()?;
+            let i_obso_faddr =
+                inner.read_u32::<LittleEndian>()?; /* Obsoleted fragment address */
+            let l_i_blocks_high =
+                inner.read_u16::<LittleEndian>()?;
+            let l_i_file_acl_high =
+                inner.read_u16::<LittleEndian>()?;
+            let l_i_uid_high =
+                inner.read_u16::<LittleEndian>()?;
+            let l_i_gid_high =
+                inner.read_u16::<LittleEndian>()?;
+            let l_i_checksum_lo =
+                inner.read_u16::<LittleEndian>()?; /* crc32c(uuid+inum+inode) LE */
+            let l_i_reserved =
+                inner.read_u16::<LittleEndian>()?;
+            let i_extra_isize =
+                inner.read_u16::<LittleEndian>()?;
+
+            let i_checksum_hi =
+                if i_extra_isize < 2 { None } else {
+                    Some(inner.read_u16::<BigEndian>()?) /* crc32c(uuid+inum+inode) BE */
+                };
+            let i_ctime_extra =
+                if i_extra_isize < 2 + 4 { None } else {
+                    Some(inner.read_u32::<LittleEndian>()?) /* extra Change time      (nsec << 2 | epoch) */
+                };
+            let i_mtime_extra =
+                if i_extra_isize < 2 + 4 + 4 { None } else {
+                    Some(inner.read_u32::<LittleEndian>()?) /* extra Modification time(nsec << 2 | epoch) */
+                };
+            let i_atime_extra =
+                if i_extra_isize < 2 + 4 + 4 + 4 { None } else {
+                    Some(inner.read_u32::<LittleEndian>()?) /* extra Access time      (nsec << 2 | epoch) */
+                };
+            let i_crtime =
+                if i_extra_isize < 2 + 4 + 4 + 4 + 4 { None } else {
+                    Some(inner.read_u32::<LittleEndian>()?) /* File Creation time */
+                };
+            let i_crtime_extra =
+                if i_extra_isize < 2 + 4 + 4 + 4 + 4 + 4 { None } else {
+                    Some(inner.read_u32::<LittleEndian>()?) /* extra FileCreationtime (nsec << 2 | epoch) */
+                };
+            let i_version_hi =
+                if i_extra_isize < 2 + 4 + 4 + 4 + 4 + 4 + 4 { None } else {
+                    Some(inner.read_u32::<LittleEndian>()?) /* high 32 bits for 64-bit version */
+                };
+            let i_projid =
+                if i_extra_isize < 2 + 4 + 4 + 4 + 4 + 4 + 4 + 4 { None } else {
+                Some(inner.read_u32::<LittleEndian>()?) /* Project ID */
+            };
+
+            // TODO: there could be extended attributes to read here
+
+
+            extracted_type = FileType::from_mode(i_mode)
+                .ok_or_else(|| parse_error(format!("unexpected file type in mode: {:b}", i_mode)))?;
+
+            file_mode = i_mode & 0b111_111_111_111;
+
+            size = (i_size_lo as u64) + ((i_size_high as u64) << 32);
+
+            if i_flags != 0x00080000 {
+                return Err(parse_error(format!("inode without unsupported flags: {0:x} {0:b}", i_flags)));
+            }
+
+            uid = i_uid as u32 + ((l_i_uid_high as u32) << 16);
+            gid = i_gid as u32 + ((l_i_gid_high as u32) << 16);
+
+            atime = Time {
+                epoch_secs: i_atime,
+                nanos: i_atime_extra,
+            };
+
+            ctime = Time {
+                epoch_secs: i_ctime,
+                nanos: i_ctime_extra,
+            };
+
+            mtime = Time {
+                epoch_secs: i_mtime,
+                nanos: i_mtime_extra,
+            };
+
+            btime = i_crtime.map(|epoch_secs| Time {
+                epoch_secs,
+                nanos: i_crtime_extra,
+            });
+        }
+
+        let block = block;
 
         if false {
-            println!("{:06}: atime {} mode {:04o} type {:?} len {}",
+            println!("{:06}: atime {:?} mode {:04o} type {:?} len {}",
                      inode + 1,
-                     i_atime, i_mode & 0b111_111_111_111,
+                     atime, file_mode,
                      extracted_type,
-                     i_size_lo);
+                     size);
             // i_block.iter().map(|b| format!("{:02x} ", b)).collect::<String>()
         }
 
-        if 0 == i_flags {
-            inner.seek(io::SeekFrom::Current(-256))?;
-            let mut buf = [0; 256];
-            inner.read_exact(&mut buf)?;
-            dbg(&buf);
-        }
+//        if 0 == i_flags {
+//            inner.seek(io::SeekFrom::Current(-256))?;
+//            let mut buf = [0; 256];
+//            inner.read_exact(&mut buf)?;
+//            dbg(&buf);
+//        }
 
-        if i_flags & 0x00080000 == 0 {
-            return Err(parse_error("inode without extents".to_string()));
-        }
 
-        assert_eq!(0x0a, i_block[0]);
-        assert_eq!(0xf3, i_block[1]);
+        assert_eq!(0x0a, block[0]);
+        assert_eq!(0xf3, block[1]);
 
-        let extent_entries = as_u16(&i_block[2..]);
-        let depth = as_u16(&i_block[6..]);
+        let extent_entries = as_u16(&block[2..]);
+        let depth = as_u16(&block[6..]);
 
         if 0 != depth {
             panic!("TODO: extent tree which is actually a tree");
@@ -489,7 +556,7 @@ impl SuperBlock {
 
         let mut extents = Vec::with_capacity(extent_entries as usize);
         for en in 0..extent_entries {
-            let extent = &i_block[12 + en as usize * 12..];
+            let extent = &block[12 + en as usize * 12..];
             let ee_block = as_u32(extent);
             let ee_len = as_u16(&extent[4..]);
             let ee_start_hi = as_u16(&extent[6..]);
@@ -510,11 +577,11 @@ impl SuperBlock {
 
         let total_bytes = extent_count * self.block_size as u64;
 
-        assert!(total_bytes >= i_size, "{} extents gives {} bytes, but the size is {}",
-                extent_count, total_bytes, i_size);
+        assert!(total_bytes >= size, "{} extents gives {} bytes, but the size is {}",
+                extent_count, total_bytes, size);
         assert!(total_bytes < std::usize::MAX as u64);
 
-        let mut ret = Vec::with_capacity(i_size as usize);
+        let mut ret = Vec::with_capacity(size as usize);
 
         for extent in extents {
             let to_read = std::cmp::min(
