@@ -452,6 +452,10 @@ impl SuperBlock {
             // i_block.iter().map(|b| format!("{:02x} ", b)).collect::<String>()
         }
 
+        if FileType::Directory != extracted_type {
+            panic!("not a directory");
+        }
+
         if 0 == i_flags {
             inner.seek(io::SeekFrom::Current(-256))?;
             let mut buf = [0; 256];
@@ -483,18 +487,15 @@ impl SuperBlock {
             let ee_start_lo = as_u32(&extent[8..]);
             let ee_start = ee_start_lo as u64 + 0x1000 * ee_start_hi as u64;
 
-            if FileType::Directory != extracted_type {
-                panic!("not a directory");
-            }
-
             if 0 != ee_block {
-                panic!("TODO: have we found follow-on parts of a directory?");
+                return Err(parse_error(format!("TODO: have we found follow-on parts ({}) of a directory? {} / {} in <{}>",
+                            ee_block, en, extent_entries, inode + 1)));
             }
 
-            let to_read = ee_len * self.block_size;
+            let to_read = ee_len as u64 * self.block_size as u64;
 
             inner.seek(io::SeekFrom::Start(self.block_size as u64 * ee_start))?;
-            let mut read = 0;
+            let mut read = 0u64;
             loop {
                 let child_inode = inner.read_u32::<LittleEndian>()?;
                 let rec_len = inner.read_u16::<LittleEndian>()?;
@@ -526,7 +527,7 @@ impl SuperBlock {
                     }
                 }
 
-                read += rec_len;
+                read += rec_len as u64;
                 if read >= to_read {
                     assert_eq!(read, to_read);
                     break;
@@ -541,7 +542,8 @@ impl SuperBlock {
         where R: io::Read + io::Seek {
         for entry in self.read_directory(&mut inner, inode)? {
             if entry.file_type == FileType::Directory {
-                self.walk(inner, entry.inode, format!("{}/{}", path, entry.name))?;
+                self.walk(inner, entry.inode, format!("{}/{}", path, entry.name)).map_err(|e|
+                        parse_error(format!("while processing {}: {}", path, e)))?;
             } else {
                 println!("{}/{} {:?}", path, entry.name, entry.file_type);
             }
