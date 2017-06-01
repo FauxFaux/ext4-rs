@@ -105,14 +105,13 @@ struct DirEntry {
 }
 
 #[derive(Debug)]
-struct Extent {
+pub struct Extent {
     block: u32,
     start: u64,
     len: u16,
 }
 
-#[derive(Debug)]
-struct Inode {
+pub struct Inode {
     extracted_type: FileType,
     file_mode: u16,
     uid: u32,
@@ -123,10 +122,7 @@ struct Inode {
     mtime: Time,
     btime: Option<Time>,
     link_count: u16,
-    extents: Vec<Extent>,
-
-    // Sigh. Can't read this without knowing this?
-    block_size: u32,
+    block: [u8; 4 * 15],
 }
 
 #[derive(Debug)]
@@ -385,7 +381,6 @@ impl SuperBlock {
 
     fn load_inode<R>(&self, inner: &mut R, inode: u32) -> io::Result<Inode>
         where R: io::Read + io::Seek {
-
         assert_ne!(0, inode);
 
         {
@@ -395,153 +390,133 @@ impl SuperBlock {
             inner.seek(io::SeekFrom::Start(pos))?;
         }
 
-        let extracted_type;
-        let file_mode: u16;
-        let uid: u32;
-        let gid: u32;
-        let size: u64;
-        let atime: Time;
-        let ctime: Time;
-        let mtime: Time;
-        let btime: Option<Time>;
-        let link_count: u16;
+        let i_mode =
+            inner.read_u16::<LittleEndian>()?; /* File mode */
+        let i_uid =
+            inner.read_u16::<LittleEndian>()?; /* Low 16 bits of Owner Uid */
+        let i_size_lo =
+            inner.read_u32::<LittleEndian>()?; /* Size in bytes */
+        let i_atime =
+            inner.read_u32::<LittleEndian>()?; /* Access time */
+        let i_ctime =
+            inner.read_u32::<LittleEndian>()?; /* Inode Change time */
+        let i_mtime =
+            inner.read_u32::<LittleEndian>()?; /* Modification time */
+//      let i_dtime =
+            inner.read_u32::<LittleEndian>()?; /* Deletion Time */
+        let i_gid =
+            inner.read_u16::<LittleEndian>()?; /* Low 16 bits of Group Id */
+        let i_links_count =
+            inner.read_u16::<LittleEndian>()?; /* Links count */
+//      let i_blocks_lo =
+            inner.read_u32::<LittleEndian>()?; /* Blocks count */
+        let i_flags =
+            inner.read_u32::<LittleEndian>()?; /* File flags */
+//      let l_i_version =
+        inner.read_u32::<LittleEndian>()?;
+
         let mut block = [0u8; 15 * 4];
-
-        {
-            let i_mode =
-                inner.read_u16::<LittleEndian>()?; /* File mode */
-            let i_uid =
-                inner.read_u16::<LittleEndian>()?; /* Low 16 bits of Owner Uid */
-            let i_size_lo =
-                inner.read_u32::<LittleEndian>()?; /* Size in bytes */
-            let i_atime =
-                inner.read_u32::<LittleEndian>()?; /* Access time */
-            let i_ctime =
-                inner.read_u32::<LittleEndian>()?; /* Inode Change time */
-            let i_mtime =
-                inner.read_u32::<LittleEndian>()?; /* Modification time */
-//            let i_dtime =
-                inner.read_u32::<LittleEndian>()?; /* Deletion Time */
-            let i_gid =
-                inner.read_u16::<LittleEndian>()?; /* Low 16 bits of Group Id */
-            let i_links_count =
-                inner.read_u16::<LittleEndian>()?; /* Links count */
-//            let i_blocks_lo =
-                inner.read_u32::<LittleEndian>()?; /* Blocks count */
-            let i_flags =
-                inner.read_u32::<LittleEndian>()?; /* File flags */
-//            let l_i_version =
-                inner.read_u32::<LittleEndian>()?;
-
             inner.read_exact(&mut block)?; /* Pointers to blocks */
 
-//            let i_generation =
-                inner.read_u32::<LittleEndian>()?; /* File version (for NFS) */
-//            let i_file_acl_lo =
-                inner.read_u32::<LittleEndian>()?; /* File ACL */
-            let i_size_high =
-                inner.read_u32::<LittleEndian>()?;
-//            let i_obso_faddr =
-                inner.read_u32::<LittleEndian>()?; /* Obsoleted fragment address */
-//            let l_i_blocks_high =
-                inner.read_u16::<LittleEndian>()?;
-//            let l_i_file_acl_high =
-                inner.read_u16::<LittleEndian>()?;
-            let l_i_uid_high =
-                inner.read_u16::<LittleEndian>()?;
-            let l_i_gid_high =
-                inner.read_u16::<LittleEndian>()?;
-//            let l_i_checksum_lo =
-                inner.read_u16::<LittleEndian>()?; /* crc32c(uuid+inum+inode) LE */
-//            let l_i_reserved =
-                inner.read_u16::<LittleEndian>()?;
-            let i_extra_isize =
-                inner.read_u16::<LittleEndian>()?;
+//      let i_generation =
+            inner.read_u32::<LittleEndian>()?; /* File version (for NFS) */
+//      let i_file_acl_lo =
+            inner.read_u32::<LittleEndian>()?; /* File ACL */
+        let i_size_high =
+            inner.read_u32::<LittleEndian>()?;
+//      let i_obso_faddr =
+            inner.read_u32::<LittleEndian>()?; /* Obsoleted fragment address */
+//      let l_i_blocks_high =
+            inner.read_u16::<LittleEndian>()?;
+//      let l_i_file_acl_high =
+            inner.read_u16::<LittleEndian>()?;
+        let l_i_uid_high =
+            inner.read_u16::<LittleEndian>()?;
+        let l_i_gid_high =
+            inner.read_u16::<LittleEndian>()?;
+//      let l_i_checksum_lo =
+            inner.read_u16::<LittleEndian>()?; /* crc32c(uuid+inum+inode) LE */
+//      let l_i_reserved =
+            inner.read_u16::<LittleEndian>()?;
+        let i_extra_isize =
+            inner.read_u16::<LittleEndian>()?;
 
-//            let i_checksum_hi =
-                if i_extra_isize < 2 { None } else {
-                    Some(inner.read_u16::<BigEndian>()?) /* crc32c(uuid+inum+inode) BE */
-                };
-            let i_ctime_extra =
-                if i_extra_isize < 2 + 4 { None } else {
-                    Some(inner.read_u32::<LittleEndian>()?) /* extra Change time      (nsec << 2 | epoch) */
-                };
-            let i_mtime_extra =
-                if i_extra_isize < 2 + 4 + 4 { None } else {
-                    Some(inner.read_u32::<LittleEndian>()?) /* extra Modification time(nsec << 2 | epoch) */
-                };
-            let i_atime_extra =
-                if i_extra_isize < 2 + 4 + 4 + 4 { None } else {
-                    Some(inner.read_u32::<LittleEndian>()?) /* extra Access time      (nsec << 2 | epoch) */
-                };
-            let i_crtime =
-                if i_extra_isize < 2 + 4 + 4 + 4 + 4 { None } else {
-                    Some(inner.read_u32::<LittleEndian>()?) /* File Creation time */
-                };
-            let i_crtime_extra =
-                if i_extra_isize < 2 + 4 + 4 + 4 + 4 + 4 { None } else {
-                    Some(inner.read_u32::<LittleEndian>()?) /* extra FileCreationtime (nsec << 2 | epoch) */
-                };
-//            let i_version_hi =
-                if i_extra_isize < 2 + 4 + 4 + 4 + 4 + 4 + 4 { None } else {
-                    Some(inner.read_u32::<LittleEndian>()?) /* high 32 bits for 64-bit version */
-                };
-//            let i_projid =
-                if i_extra_isize < 2 + 4 + 4 + 4 + 4 + 4 + 4 + 4 { None } else {
-                Some(inner.read_u32::<LittleEndian>()?) /* Project ID */
+//      let i_checksum_hi =
+            if i_extra_isize < 2 { None } else {
+            Some(inner.read_u16::<BigEndian>()?) /* crc32c(uuid+inum+inode) BE */
+        };
+        let i_ctime_extra =
+            if i_extra_isize < 2 + 4 { None } else {
+                Some(inner.read_u32::<LittleEndian>()?) /* extra Change time      (nsec << 2 | epoch) */
             };
+        let i_mtime_extra =
+            if i_extra_isize < 2 + 4 + 4 { None } else {
+                Some(inner.read_u32::<LittleEndian>()?) /* extra Modification time(nsec << 2 | epoch) */
+            };
+        let i_atime_extra =
+            if i_extra_isize < 2 + 4 + 4 + 4 { None } else {
+                Some(inner.read_u32::<LittleEndian>()?) /* extra Access time      (nsec << 2 | epoch) */
+            };
+        let i_crtime =
+            if i_extra_isize < 2 + 4 + 4 + 4 + 4 { None } else {
+                Some(inner.read_u32::<LittleEndian>()?) /* File Creation time */
+            };
+        let i_crtime_extra =
+            if i_extra_isize < 2 + 4 + 4 + 4 + 4 + 4 { None } else {
+                Some(inner.read_u32::<LittleEndian>()?) /* extra FileCreationtime (nsec << 2 | epoch) */
+            };
+//      let i_version_hi =
+            if i_extra_isize < 2 + 4 + 4 + 4 + 4 + 4 + 4 { None } else {
+            Some(inner.read_u32::<LittleEndian>()?) /* high 32 bits for 64-bit version */
+        };
+//      let i_projid =
+            if i_extra_isize < 2 + 4 + 4 + 4 + 4 + 4 + 4 + 4 { None } else {
+            Some(inner.read_u32::<LittleEndian>()?) /* Project ID */
+        };
 
-            // TODO: there could be extended attributes to read here
+        // TODO: there could be extended attributes to read here
 
+        // if the flags contains any incompatible flags...
+        if i_flags & 0b1101_1111_1111_1110_1010_1011_0000_0100 != 0x00080000 {
+            return Err(parse_error(format!("inode without unsupported flags: {0:x} {0:b}", i_flags)));
+        }
 
-            extracted_type = FileType::from_mode(i_mode)
-                .ok_or_else(|| parse_error(format!("unexpected file type in mode: {:b}", i_mode)))?;
-
-            file_mode = i_mode & 0b111_111_111_111;
-
-            size = (i_size_lo as u64) + ((i_size_high as u64) << 32);
-
-            // if the flags contains any incompatible flags...
-            if i_flags & 0b1101_1111_1111_1110_1010_1011_0000_0100 != 0x00080000 {
-                return Err(parse_error(format!("inode without unsupported flags: {0:x} {0:b}", i_flags)));
-            }
-
-            uid = i_uid as u32 + ((l_i_uid_high as u32) << 16);
-            gid = i_gid as u32 + ((l_i_gid_high as u32) << 16);
-
-            atime = Time {
+        Ok(Inode {
+            extracted_type: FileType::from_mode(i_mode)
+                .ok_or_else(|| parse_error(format!("unexpected file type in mode: {:b}", i_mode)))?,
+            file_mode: i_mode & 0b111_111_111_111,
+            uid: i_uid as u32 + ((l_i_uid_high as u32) << 16),
+            gid: i_gid as u32 + ((l_i_gid_high as u32) << 16),
+            size: (i_size_lo as u64) + ((i_size_high as u64) << 32),
+            atime: Time {
                 epoch_secs: i_atime,
                 nanos: i_atime_extra,
-            };
-
-            ctime = Time {
+            },
+            ctime: Time {
                 epoch_secs: i_ctime,
                 nanos: i_ctime_extra,
-            };
-
-            mtime = Time {
+            },
+            mtime: Time {
                 epoch_secs: i_mtime,
                 nanos: i_mtime_extra,
-            };
-
-            btime = i_crtime.map(|epoch_secs| Time {
+            },
+            btime: i_crtime.map(|epoch_secs| Time {
                 epoch_secs,
                 nanos: i_crtime_extra,
-            });
+            }),
+            link_count: i_links_count,
+            block,
+        })
+    }
 
-            link_count = i_links_count;
-        }
-
-        let block = block;
-
-        if false {
-            println!("{:06}: atime {:?} mode {:04o} type {:?} len {}",
-                     inode + 1,
-                     atime, file_mode,
-                     extracted_type,
-                     size);
-            // i_block.iter().map(|b| format!("{:02x} ", b)).collect::<String>()
-        }
+//        if false {
+//            println!("{:06}: atime {:?} mode {:04o} type {:?} len {}",
+//                     inode + 1,
+//                     atime, file_mode,
+//                     extracted_type,
+//                     size);
+//            // i_block.iter().map(|b| format!("{:02x} ", b)).collect::<String>()
+//        }
 
 //        if 0 == i_flags {
 //            inner.seek(io::SeekFrom::Current(-256))?;
@@ -549,24 +524,6 @@ impl SuperBlock {
 //            inner.read_exact(&mut buf)?;
 //            dbg(&buf);
 //        }
-
-        let extents: Vec<Extent> = self.load_extent_tree(inner, block)?;
-
-        Ok(Inode {
-            extracted_type,
-            file_mode,
-            uid,
-            gid,
-            size: size as u64,
-            atime,
-            ctime,
-            mtime,
-            btime,
-            link_count,
-            extents,
-            block_size: self.block_size,
-        })
-    }
 
 
     fn add_found_extents<R>(
@@ -648,8 +605,12 @@ impl SuperBlock {
 
         let mut dirs = Vec::with_capacity(40);
 
-        let content = self.load_inode(inner, inode)?;
-        let data = content.load_all(inner)?;
+        let data = {
+            let inode_details = self.load_inode(inner, inode)?;
+            let extent_tree = self.load_extent_tree(inner, inode_details.block)?;
+            self.load_all(inner, &inode_details, &extent_tree)?
+        };
+
         let total_len = data.len();
         let mut inner = io::Cursor::new(data);
         {
@@ -706,8 +667,11 @@ impl SuperBlock {
                 },
                 FileType::RegularFile => {
                     println!("{}/{} file: {:?}", path, entry.name,
-                             self.load_inode(&mut inner, entry.inode)?);
+                             self.load_inode(&mut inner, entry.inode)?.uid);
                 },
+                FileType::SymbolicLink => {
+                    self.load_inode(&mut inner, entry.inode)?;
+                }
                 _ => {
                     println!("{}/{} {:?} at {}", path, entry.name, entry.file_type, entry.inode);
                 }
@@ -715,19 +679,17 @@ impl SuperBlock {
         }
         Ok(())
     }
-}
 
-impl Inode {
-    pub fn load_all<R>(&self, mut inner: &mut R) -> io::Result<Vec<u8>>
+    pub fn load_all<R>(&self, mut inner: &mut R, inode: &Inode, extents: &Vec<Extent>) -> io::Result<Vec<u8>>
         where R: io::Read + io::Seek {
 
-        assert!(self.size < std::usize::MAX as u64);
-        let size = self.size as usize;
+        assert!(inode.size < std::usize::MAX as u64);
+        let size = inode.size as usize;
 
         let mut ret = Vec::with_capacity(size);
 
         let mut last_block_end = 0;
-        for extent in &self.extents {
+        for extent in extents {
             ret.resize(self.block_size as usize * (extent.block as usize - last_block_end as usize), 0);
             last_block_end += extent.len;
 
