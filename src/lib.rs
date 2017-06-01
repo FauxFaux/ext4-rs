@@ -4,7 +4,6 @@ extern crate byteorder;
 extern crate enum_traits;
 #[macro_use] extern crate enum_traits_macros;
 
-use std::fmt;
 use std::io;
 use std::collections::HashMap;
 
@@ -123,12 +122,11 @@ struct BlockGroup {
     block_bitmap_block: u64,
     inode_table_block: u64,
     inodes: u64,
-    bitmap: Vec<u8>,
 }
 
 #[derive(Debug)]
-struct SuperBlock {
-    block_size: u16,
+pub struct SuperBlock {
+    block_size: u32,
     inode_size: u16,
     inodes_per_group: u32,
     groups: HashMap<u16, BlockGroup>,
@@ -141,7 +139,8 @@ struct Time {
 }
 
 impl SuperBlock {
-    fn load<R>(inner: &mut R) -> io::Result<SuperBlock>
+    #[allow(unused_variables)]
+    pub fn load<R>(inner: &mut R) -> io::Result<SuperBlock>
     where R: io::Read + io::Seek
     {
         inner.seek(io::SeekFrom::Start(1024))?;
@@ -264,7 +263,7 @@ impl SuperBlock {
             return Err(parse_error(format!("invalid magic number: {:x} should be {:x}", EXT4_SUPER_MAGIC, s_magic)));
         }
 
-        let block_size: u16 = match s_log_block_size {
+        let block_size: u32 = match s_log_block_size {
             1 => 2048,
             2 => 4096,
             6 => 65536,
@@ -355,17 +354,12 @@ impl SuperBlock {
             let inode_bitmap_block: u64 = bg_inode_bitmap_lo as u64;
             let inode_table_block: u64 = bg_inode_table_lo as u64;
 
-//            inner.seek(io::SeekFrom::Start(block_size as u64 * inode_bitmap_block))?;
-            let mut bitmap = vec![0u8; (s_inodes_per_group / 8) as usize];
-//            inner.read_exact(&mut bitmap);
-
             let inodes = s_inodes_per_group.checked_sub(bg_free_inodes_count_lo as u32).expect("inodes") as u64;
 
             groups.insert(block as u16, BlockGroup {
                 block_bitmap_block,
                 inode_table_block,
                 inodes,
-                bitmap,
             });
         }
 
@@ -414,45 +408,45 @@ impl SuperBlock {
                 inner.read_u32::<LittleEndian>()?; /* Inode Change time */
             let i_mtime =
                 inner.read_u32::<LittleEndian>()?; /* Modification time */
-            let i_dtime =
+//            let i_dtime =
                 inner.read_u32::<LittleEndian>()?; /* Deletion Time */
             let i_gid =
                 inner.read_u16::<LittleEndian>()?; /* Low 16 bits of Group Id */
-            let i_links_count =
+//            let i_links_count =
                 inner.read_u16::<LittleEndian>()?; /* Links count */
-            let i_blocks_lo =
+//            let i_blocks_lo =
                 inner.read_u32::<LittleEndian>()?; /* Blocks count */
             let i_flags =
                 inner.read_u32::<LittleEndian>()?; /* File flags */
-            let l_i_version =
+//            let l_i_version =
                 inner.read_u32::<LittleEndian>()?;
 
             inner.read_exact(&mut block)?; /* Pointers to blocks */
 
-            let i_generation =
+//            let i_generation =
                 inner.read_u32::<LittleEndian>()?; /* File version (for NFS) */
-            let i_file_acl_lo =
+//            let i_file_acl_lo =
                 inner.read_u32::<LittleEndian>()?; /* File ACL */
             let i_size_high =
                 inner.read_u32::<LittleEndian>()?;
-            let i_obso_faddr =
+//            let i_obso_faddr =
                 inner.read_u32::<LittleEndian>()?; /* Obsoleted fragment address */
-            let l_i_blocks_high =
+//            let l_i_blocks_high =
                 inner.read_u16::<LittleEndian>()?;
-            let l_i_file_acl_high =
+//            let l_i_file_acl_high =
                 inner.read_u16::<LittleEndian>()?;
             let l_i_uid_high =
                 inner.read_u16::<LittleEndian>()?;
             let l_i_gid_high =
                 inner.read_u16::<LittleEndian>()?;
-            let l_i_checksum_lo =
+//            let l_i_checksum_lo =
                 inner.read_u16::<LittleEndian>()?; /* crc32c(uuid+inum+inode) LE */
-            let l_i_reserved =
+//            let l_i_reserved =
                 inner.read_u16::<LittleEndian>()?;
             let i_extra_isize =
                 inner.read_u16::<LittleEndian>()?;
 
-            let i_checksum_hi =
+//            let i_checksum_hi =
                 if i_extra_isize < 2 { None } else {
                     Some(inner.read_u16::<BigEndian>()?) /* crc32c(uuid+inum+inode) BE */
                 };
@@ -476,11 +470,11 @@ impl SuperBlock {
                 if i_extra_isize < 2 + 4 + 4 + 4 + 4 + 4 { None } else {
                     Some(inner.read_u32::<LittleEndian>()?) /* extra FileCreationtime (nsec << 2 | epoch) */
                 };
-            let i_version_hi =
+//            let i_version_hi =
                 if i_extra_isize < 2 + 4 + 4 + 4 + 4 + 4 + 4 { None } else {
                     Some(inner.read_u32::<LittleEndian>()?) /* high 32 bits for 64-bit version */
                 };
-            let i_projid =
+//            let i_projid =
                 if i_extra_isize < 2 + 4 + 4 + 4 + 4 + 4 + 4 + 4 { None } else {
                 Some(inner.read_u32::<LittleEndian>()?) /* Project ID */
             };
@@ -543,8 +537,6 @@ impl SuperBlock {
 //        }
 
         let extents: Vec<Extent> = self.load_extent_tree(inner, block)?;
-
-        let extent_count: u64 = extents.iter().map(|extent| extent.len as u64).sum();
 
         assert!(size < std::usize::MAX as u64);
 
@@ -616,13 +608,13 @@ impl SuperBlock {
 
         for en in 0..extent_entries {
             let extent_idx = &block[12 + en as usize * 12..];
-            let ei_block = as_u32(extent_idx);
+//            let ei_block = as_u32(extent_idx);
             let ei_leaf_lo = as_u32(&extent_idx[4..]);
             let ei_leaf_hi = as_u16(&extent_idx[8..]);
             let ee_leaf: u64 = ei_leaf_lo as u64 + ((ei_leaf_hi as u64) << 32);
             inner.seek(io::SeekFrom::Start(self.block_size as u64 * ee_leaf))?;
             let mut block = vec![0u8; self.block_size as usize];
-            inner.read_exact(&mut block);
+            inner.read_exact(&mut block)?;
             self.add_found_extents(inner, &block, depth - 1, extents)?;
         }
 
@@ -703,7 +695,7 @@ impl SuperBlock {
         Ok(dirs)
     }
 
-    fn walk<R>(&self, mut inner: &mut R, inode: u32, path: String) -> io::Result<()>
+    pub fn walk<R>(&self, mut inner: &mut R, inode: u32, path: String) -> io::Result<()>
         where R: io::Read + io::Seek {
         for entry in self.read_directory(&mut inner, inode)? {
             match entry.file_type {
@@ -724,6 +716,7 @@ impl SuperBlock {
     }
 }
 
+#[allow(dead_code)]
 fn dbg(buf: &[u8]) {
     let bytes_per_line = 32;
     for i in 0..buf.len() / bytes_per_line {
