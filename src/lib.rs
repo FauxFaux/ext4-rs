@@ -684,8 +684,13 @@ impl SuperBlock {
                     };
                     println!("{}/{} <{}> symlink to: {:?} [{}]", path, entry.name, entry.inode, dest, i.size);
                 }
+                FileType::CharacterDevice | FileType::BlockDevice => {
+                    let i = self.load_inode(&mut inner, entry.inode)?;
+                    assert!(0 != i.block[0] || 0 != i.block[1]);
+                    println!("{}/{} <{}> {:?}: {}, {}", path, entry.name, entry.inode, entry.file_type, i.block[1], i.block[0]);
+                }
                 _ => {
-                    println!("{}/{} {:?} at {}", path, entry.name, entry.file_type, entry.inode);
+                    panic!("{}/{} {:?} at {}", path, entry.name, entry.file_type, entry.inode);
                 }
             }
         }
