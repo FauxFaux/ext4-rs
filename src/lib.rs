@@ -124,7 +124,9 @@ struct Inode {
     btime: Option<Time>,
     link_count: u16,
     extents: Vec<Extent>,
-    data: Vec<u8>,
+
+    // Sigh. Can't read this without knowing this?
+    block_size: u32,
 }
 
 #[derive(Debug)]
@@ -550,30 +552,6 @@ impl SuperBlock {
 
         let extents: Vec<Extent> = self.load_extent_tree(inner, block)?;
 
-        assert!(size < std::usize::MAX as u64);
-
-        let size = size as usize;
-
-        let mut ret = Vec::with_capacity(size);
-
-        let mut last_block_end = 0;
-        for extent in &extents {
-            ret.resize(self.block_size as usize * (extent.block as usize - last_block_end as usize), 0);
-            last_block_end += extent.len;
-
-            let to_read = std::cmp::min(
-                extent.len as u64 * self.block_size as u64,
-                (ret.capacity() - ret.len()) as u64);
-
-            inner.seek(io::SeekFrom::Start(self.block_size as u64 * extent.start))?;
-            let old_end = ret.len();
-            let new_end = old_end as u64 + to_read;
-            assert!(new_end < std::usize::MAX as u64);
-            let new_end = new_end as usize;
-            ret.resize(new_end, 0u8);
-            inner.read_exact(&mut ret[old_end..new_end])?;
-        }
-
         Ok(Inode {
             extracted_type,
             file_mode,
@@ -586,7 +564,7 @@ impl SuperBlock {
             btime,
             link_count,
             extents,
-            data: ret,
+            block_size: self.block_size,
         })
     }
 
@@ -671,8 +649,9 @@ impl SuperBlock {
         let mut dirs = Vec::with_capacity(40);
 
         let content = self.load_inode(inner, inode)?;
-        let total_len = content.data.len();
-        let mut inner = io::Cursor::new(content.data);
+        let data = content.load_all(inner)?;
+        let total_len = data.len();
+        let mut inner = io::Cursor::new(data);
         {
             let mut read = 0usize;
             loop {
@@ -726,8 +705,8 @@ impl SuperBlock {
                         parse_error(format!("while processing {}: {}", path, e)))?;
                 },
                 FileType::RegularFile => {
-                    println!("{}/{} file: {}", path, entry.name,
-                             self.load_inode(&mut inner, entry.inode)?.data.len());
+                    println!("{}/{} file: {:?}", path, entry.name,
+                             self.load_inode(&mut inner, entry.inode)?);
                 },
                 _ => {
                     println!("{}/{} {:?} at {}", path, entry.name, entry.file_type, entry.inode);
@@ -735,6 +714,37 @@ impl SuperBlock {
             }
         }
         Ok(())
+    }
+}
+
+impl Inode {
+    pub fn load_all<R>(&self, mut inner: &mut R) -> io::Result<Vec<u8>>
+        where R: io::Read + io::Seek {
+
+        assert!(self.size < std::usize::MAX as u64);
+        let size = self.size as usize;
+
+        let mut ret = Vec::with_capacity(size);
+
+        let mut last_block_end = 0;
+        for extent in &self.extents {
+            ret.resize(self.block_size as usize * (extent.block as usize - last_block_end as usize), 0);
+            last_block_end += extent.len;
+
+            let to_read = std::cmp::min(
+                extent.len as u64 * self.block_size as u64,
+                (ret.capacity() - ret.len()) as u64);
+
+            inner.seek(io::SeekFrom::Start(self.block_size as u64 * extent.start))?;
+            let old_end = ret.len();
+            let new_end = old_end as u64 + to_read;
+            assert!(new_end < std::usize::MAX as u64);
+            let new_end = new_end as usize;
+            ret.resize(new_end, 0u8);
+            inner.read_exact(&mut ret[old_end..new_end])?;
+        }
+
+        Ok(ret)
     }
 }
 
