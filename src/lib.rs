@@ -597,21 +597,19 @@ impl SuperBlock {
 
 
 
-    fn read_directory<R>(&self, inner: &mut R, inode: u32) -> io::Result<Vec<DirEntry>>
+    fn read_directory<R>(&self, inner: &mut R, inode: &Inode) -> io::Result<Vec<DirEntry>>
     where R: io::Read + io::Seek {
 
         let mut dirs = Vec::with_capacity(40);
 
         let data = {
-            let inode_details = self.load_inode(inner, inode)?;
-
             // if the flags, minus irrelevant flags, isn't just EXTENTS...
-            if !inode_details.only_relevant_flag_is_extents() {
-                return Err(parse_error(format!("inode without unsupported flags: {0:x} {0:b}", inode_details.flags)));
+            if !inode.only_relevant_flag_is_extents() {
+                return Err(parse_error(format!("inode without unsupported flags: {0:x} {0:b}", inode.flags)));
             }
 
-            let extent_tree = self.load_extent_tree(inner, inode_details.block)?;
-            self.load_all(inner, &inode_details, &extent_tree)?
+            let extent_tree = self.load_extent_tree(inner, inode.block)?;
+            self.load_all(inner, inode, &extent_tree)?
         };
 
         let total_len = data.len();
@@ -660,20 +658,25 @@ impl SuperBlock {
         Ok(dirs)
     }
 
-    pub fn walk<R>(&self, mut inner: &mut R, inode: u32, path: String) -> io::Result<()>
+    pub fn root<R>(&self, mut inner: &mut R) -> io::Result<Inode>
+        where R: io::Read + io::Seek {
+        self.load_inode(inner, 2)
+    }
+
+    pub fn walk<R>(&self, mut inner: &mut R, inode: &Inode, path: String) -> io::Result<()>
         where R: io::Read + io::Seek {
         for entry in self.read_directory(&mut inner, inode)? {
+            let i = self.load_inode(&mut inner, entry.inode)?;
+
             match entry.file_type {
                 FileType::Directory => {
-                    self.walk(inner, entry.inode, format!("{}/{}", path, entry.name)).map_err(|e|
+                    self.walk(inner, &i, format!("{}/{}", path, entry.name)).map_err(|e|
                         parse_error(format!("while processing {}: {}", path, e)))?;
                 },
                 FileType::RegularFile => {
-                    let i = self.load_inode(&mut inner, entry.inode)?;
                     println!("{}/{} <{}> file; atime: {:?}", path, entry.name, entry.inode, i.atime);
                 },
                 FileType::SymbolicLink => {
-                    let i = self.load_inode(&mut inner, entry.inode)?;
                     let dest = if i.size < 60 {
                         assert_eq!(0, i.flags);
                         std::str::from_utf8(&i.block[0..i.size as usize]).expect("utf-8").to_string()
@@ -685,7 +688,6 @@ impl SuperBlock {
                     println!("{}/{} <{}> symlink to: {:?} [{}]", path, entry.name, entry.inode, dest, i.size);
                 }
                 FileType::CharacterDevice | FileType::BlockDevice => {
-                    let i = self.load_inode(&mut inner, entry.inode)?;
                     assert!(0 != i.block[0] || 0 != i.block[1]);
                     println!("{}/{} <{}> {:?}: {}, {}", path, entry.name, entry.inode, entry.file_type, i.block[1], i.block[0]);
                 }
@@ -764,7 +766,8 @@ mod tests {
         let file = fs::File::open("/dev/loop0p2").expect("device setup");
         let mut r = io::BufReader::new(file);
         let superblock = ::SuperBlock::load(&mut r).expect("success");
-        superblock.walk(&mut r, 2, "".to_string()).expect("success");
+        let root = superblock.root(&mut r).expect("success");
+        superblock.walk(&mut r, &root, "".to_string()).expect("success");
     }
 }
 
