@@ -129,6 +129,14 @@ struct Extent {
     len: u16,
 }
 
+pub struct TreeReader<R> {
+    inner: R,
+    pos: u64,
+    block_size: u32,
+    extents: Vec<Extent>,
+    sparse_bytes: Option<u64>,
+}
+
 #[derive(Debug)]
 pub struct Stat {
     pub extracted_type: FileType,
@@ -696,8 +704,7 @@ impl SuperBlock {
                 return Err(parse_error(format!("inode without unsupported flags: {0:x} {0:b}", inode.flags)));
             }
 
-            let extent_tree = self.load_extent_tree(inner, inode.block)?;
-            self.load_all(inner, inode, &extent_tree)?
+            self.load_all(inner, inode)?
         };
 
         let total_len = data.len();
@@ -776,8 +783,7 @@ impl SuperBlock {
                     std::str::from_utf8(&inode.block[0..inode.stat.size as usize]).expect("utf-8").to_string()
                 } else {
                     assert!(inode.only_relevant_flag_is_extents());
-                    let extents = self.load_extent_tree(inner, inode.block)?;
-                    std::str::from_utf8(&self.load_all(inner, inode, &extents)?).expect("utf-8").to_string()
+                    std::str::from_utf8(&self.load_all(inner, inode)?).expect("utf-8").to_string()
                 }),
             FileType::CharacterDevice => {
                 let (maj, min) = load_maj_min(inode.block);
@@ -790,7 +796,7 @@ impl SuperBlock {
         })
     }
 
-    fn load_all<R>(&self, mut inner: &mut R, inode: &Inode, extents: &[Extent]) -> io::Result<Vec<u8>>
+    fn load_all<R>(&self, inner: &mut R, inode: &Inode) -> io::Result<Vec<u8>>
     where R: io::Read + io::Seek {
 
         #[allow(unknown_lints, absurd_extreme_comparisons)] {
@@ -806,25 +812,95 @@ impl SuperBlock {
 
         let mut ret = Vec::with_capacity(size);
 
-        let mut last_block_end = 0;
-        for extent in extents {
-            ret.resize(self.block_size as usize * (extent.block as usize - last_block_end as usize), 0);
-            last_block_end += extent.len;
-
-            let to_read = std::cmp::min(
-                extent.len as u64 * self.block_size as u64,
-                (ret.capacity() - ret.len()) as u64);
-
-            inner.seek(io::SeekFrom::Start(self.block_size as u64 * extent.start))?;
-            let old_end = ret.len();
-            let new_end = old_end as u64 + to_read;
-            assert!(new_end < std::usize::MAX as u64);
-            let new_end = new_end as usize;
-            ret.resize(new_end, 0u8);
-            inner.read_exact(&mut ret[old_end..new_end])?;
-        }
+        assert_eq!(size, self.reader_for(inner, inode)?.read_to_end(&mut ret)?);
 
         Ok(ret)
+    }
+
+
+    fn reader_for<R>(&self, mut inner: R, inode: &Inode) -> io::Result<TreeReader<R>>
+    where R: io::Read + io::Seek {
+        let extents = self.load_extent_tree(&mut inner, inode.block)?;
+
+        inner.seek(io::SeekFrom::Start(extents[0].start as u64 * self.block_size as u64))?;
+
+        assert_eq!(0, extents[0].block);
+
+        Ok(TreeReader {
+            pos: 0,
+            inner,
+            extents,
+            block_size: self.block_size,
+            sparse_bytes: None,
+        })
+    }
+}
+
+impl<R> io::Read for TreeReader<R>
+where R: io::Read + io::Seek {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if 0 == buf.len() || self.extents.is_empty() {
+            return Ok(0);
+        }
+
+        // we're feeding them some sparse bytes, keep doing so, and mark as done if we're done
+        if let Some(remaining_sparse) = self.sparse_bytes {
+            return if (buf.len() as u64) < remaining_sparse {
+                self.sparse_bytes = Some(remaining_sparse - buf.len() as u64);
+                zero(buf);
+                Ok(buf.len())
+            } else {
+                self.sparse_bytes = None;
+                zero(&mut buf[0..remaining_sparse as usize]);
+                Ok(remaining_sparse as usize)
+            };
+        }
+
+        // we must be feeding them a real extent; keep doing so
+        let read;
+        {
+            // first self.extents is the block we're reading from
+            // we've read self.pos from it already
+            let reading_extent = &self.extents[0];
+            let this_extent_len_bytes = reading_extent.len as u64 * self.block_size as u64;
+
+            let bytes_until_end = this_extent_len_bytes - self.pos;
+
+            let to_read = std::cmp::min(buf.len() as u64, bytes_until_end) as usize;
+
+            read = self.inner.read(&mut buf[0..to_read])?;
+            assert_ne!(0, read);
+
+            // if, while reading, we didn't reach the end of this extent, everything is okay
+            if (read as u64) != bytes_until_end {
+                self.pos += read as u64;
+                return Ok(read);
+            }
+        }
+
+        // we finished reading the current extent
+        let last = self.extents.remove(0);
+
+        if !self.extents.is_empty() {
+            let next = &self.extents[0];
+
+            // check for HOLES
+            let last_ended = last.block as u64 + last.len as u64;
+            let new_starts = next.block as u64;
+            let hole_size = (new_starts - last_ended) * self.block_size as u64;
+            if 0 != hole_size {
+                // before feeding them the next extent, lets feed them the hole
+                self.sparse_bytes = Some(hole_size);
+            }
+        }
+
+        Ok(read)
+    }
+}
+
+fn zero(buf: &mut [u8]) {
+    for i in 0..buf.len() {
+        buf[i] = 0;
     }
 }
 
