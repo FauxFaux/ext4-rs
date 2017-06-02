@@ -236,12 +236,11 @@ where R: io::Read + io::Seek {
                                                 block_size, s_inode_size)?;
 
     Ok(::SuperBlock {
-        block_size,
         groups,
     })
 }
 
-pub fn inode<R>(mut inner: R, inode: u32) -> io::Result<::Inode>
+pub fn inode<R>(mut inner: R, inode: u32, block_size: u32) -> io::Result<::Inode>
 where R: io::Read + io::Seek {
     let i_mode =
         inner.read_u16::<LittleEndian>()?; /* File mode */
@@ -361,5 +360,6 @@ where R: io::Read + io::Seek {
         flags: ::InodeFlags::from_bits(i_flags)
             .expect("unrecognised inode flags"),
         block,
+        block_size,
     })
 }

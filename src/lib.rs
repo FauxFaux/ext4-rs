@@ -123,11 +123,11 @@ pub struct Inode {
     pub number: u32,
     flags: InodeFlags,
     block: [u8; 4 * 15],
+    block_size: u32,
 }
 
 #[derive(Debug)]
 pub struct SuperBlock {
-    block_size: u32,
     groups: block_groups::BlockGroups,
 }
 
@@ -147,7 +147,7 @@ impl SuperBlock {
     fn load_inode<R>(&self, inner: &mut R, inode: u32) -> io::Result<Inode>
     where R: io::Read + io::Seek {
         inner.seek(io::SeekFrom::Start(self.groups.index_of(inode)))?;
-        parse::inode(inner, inode)
+        parse::inode(inner, inode, self.groups.block_size)
     }
 
     fn read_directory<R>(&self, inner: &mut R, inode: &Inode) -> io::Result<Vec<DirEntry>>
@@ -266,7 +266,7 @@ impl SuperBlock {
 
     pub fn reader_for<R>(&self, inner: R, inode: &Inode) -> io::Result<TreeReader<R>>
     where R: io::Read + io::Seek {
-        TreeReader::new(inner, self.block_size, inode.block)
+        TreeReader::new(inner, inode.block_size, inode.block)
     }
 }
 
