@@ -154,74 +154,73 @@ pub struct Time {
 }
 
 impl SuperBlock {
-    #[allow(unused_variables)]
     pub fn load<R>(inner: &mut R) -> io::Result<SuperBlock>
     where R: io::Read + io::Seek
     {
         inner.seek(io::SeekFrom::Start(1024))?;
 
         // <a cut -c 9- | fgrep ' s_' | fgrep -v ERR_ | while read ty nam comment; do printf "let %s =\n  inner.read_%s::<LittleEndian>()?; %s\n" $(echo $nam | tr -d ';') $(echo $ty | sed 's/__le/u/; s/__//') $comment; done
-        let s_inodes_count =
+//        let s_inodes_count =
             inner.read_u32::<LittleEndian>()?; /* Inodes count */
         let s_blocks_count_lo =
             inner.read_u32::<LittleEndian>()?; /* Blocks count */
-        let s_r_blocks_count_lo =
+//        let s_r_blocks_count_lo =
             inner.read_u32::<LittleEndian>()?; /* Reserved blocks count */
-        let s_free_blocks_count_lo =
+//        let s_free_blocks_count_lo =
             inner.read_u32::<LittleEndian>()?; /* Free blocks count */
-        let s_free_inodes_count =
+//        let s_free_inodes_count =
             inner.read_u32::<LittleEndian>()?; /* Free inodes count */
         let s_first_data_block =
             inner.read_u32::<LittleEndian>()?; /* First Data Block */
         let s_log_block_size =
             inner.read_u32::<LittleEndian>()?; /* Block size */
-        let s_log_cluster_size =
+//        let s_log_cluster_size =
             inner.read_u32::<LittleEndian>()?; /* Allocation cluster size */
         let s_blocks_per_group =
             inner.read_u32::<LittleEndian>()?; /* # Blocks per group */
-        let s_clusters_per_group =
+//        let s_clusters_per_group =
             inner.read_u32::<LittleEndian>()?; /* # Clusters per group */
         let s_inodes_per_group =
             inner.read_u32::<LittleEndian>()?; /* # Inodes per group */
-        let s_mtime =
+//        let s_mtime =
             inner.read_u32::<LittleEndian>()?; /* Mount time */
-        let s_wtime =
+//        let s_wtime =
             inner.read_u32::<LittleEndian>()?; /* Write time */
-        let s_mnt_count =
+//        let s_mnt_count =
             inner.read_u16::<LittleEndian>()?; /* Mount count */
-        let s_max_mnt_count =
+//        let s_max_mnt_count =
             inner.read_u16::<LittleEndian>()?; /* Maximal mount count */
         let s_magic =
             inner.read_u16::<LittleEndian>()?; /* Magic signature */
         let s_state =
             inner.read_u16::<LittleEndian>()?; /* File system state */
-        let s_errors =
+//        let s_errors =
             inner.read_u16::<LittleEndian>()?; /* Behaviour when detecting errors */
-        let s_minor_rev_level =
+//        let s_minor_rev_level =
             inner.read_u16::<LittleEndian>()?; /* minor revision level */
-        let s_lastcheck =
+//        let s_lastcheck =
             inner.read_u32::<LittleEndian>()?; /* time of last check */
-        let s_checkinterval =
+//        let s_checkinterval =
             inner.read_u32::<LittleEndian>()?; /* max. time between checks */
         let s_creator_os =
             inner.read_u32::<LittleEndian>()?; /* OS */
         let s_rev_level =
             inner.read_u32::<LittleEndian>()?; /* Revision level */
-        let s_def_resuid =
+//        let s_def_resuid =
             inner.read_u16::<LittleEndian>()?; /* Default uid for reserved blocks */
-        let s_def_resgid =
+//        let s_def_resgid =
             inner.read_u16::<LittleEndian>()?; /* Default gid for reserved blocks */
-        let s_first_ino =
+//        let s_first_ino =
             inner.read_u32::<LittleEndian>()?; /* First non-reserved inode */
         let s_inode_size =
             inner.read_u16::<LittleEndian>()?; /* size of inode structure */
-        let s_block_group_nr =
+//        let s_block_group_nr =
             inner.read_u16::<LittleEndian>()?; /* block group # of this superblock */
-        let s_feature_compat =
+//        let s_feature_compat =
             inner.read_u32::<LittleEndian>()?; /* compatible feature set */
         let s_feature_incompat =
             inner.read_u32::<LittleEndian>()?; /* incompatible feature set */
-        let s_feature_ro_compat =
+//        let s_feature_ro_compat =
             inner.read_u32::<LittleEndian>()?; /* readonly-compatible feature set */
         let mut s_uuid = [0; 16];
         inner.read_exact(&mut s_uuid)?; /* 128-bit uuid for volume */
@@ -229,53 +228,70 @@ impl SuperBlock {
         inner.read_exact(&mut s_volume_name)?; /* volume name */
         let mut s_last_mounted = [0u8; 64];
         inner.read_exact(&mut s_last_mounted)?; /* directory where last mounted */
-        let s_algorithm_usage_bitmap =
+//        let s_algorithm_usage_bitmap =
             inner.read_u32::<LittleEndian>()?; /* For compression */
-        let s_prealloc_blocks =
+//        let s_prealloc_blocks =
             inner.read_u8()?; /* Nr of blocks to try to preallocate*/
-        let s_prealloc_dir_blocks =
+//        let s_prealloc_dir_blocks =
             inner.read_u8()?; /* Nr to preallocate for dirs */
-        let s_reserved_gdt_blocks =
+//        let s_reserved_gdt_blocks =
             inner.read_u16::<LittleEndian>()?; /* Per group desc for online growth */
         let mut s_journal_uuid = [0u8; 16];
         inner.read_exact(&mut s_journal_uuid)?; /* uuid of journal superblock */
-        let s_journal_inum =
+//        let s_journal_inum =
             inner.read_u32::<LittleEndian>()?; /* inode number of journal file */
-        let s_journal_dev =
+//        let s_journal_dev =
             inner.read_u32::<LittleEndian>()?; /* device number of journal file */
-        let s_last_orphan =
+//        let s_last_orphan =
             inner.read_u32::<LittleEndian>()?; /* start of list of inodes to delete */
         let mut s_hash_seed = [0u8; 4 * 4];
         inner.read_exact(&mut s_hash_seed)?; /* HTREE hash seed */
-        let s_def_hash_version =
+//        let s_def_hash_version =
             inner.read_u8()?; /* Default hash version to use */
-        let s_jnl_backup_type =
+//        let s_jnl_backup_type =
             inner.read_u8()?;
         let s_desc_size =
             inner.read_u16::<LittleEndian>()?; /* size of group descriptor */
-        let s_default_mount_opts =
+//        let s_default_mount_opts =
             inner.read_u32::<LittleEndian>()?;
-        let s_first_meta_bg =
+//        let s_first_meta_bg =
             inner.read_u32::<LittleEndian>()?; /* First metablock block group */
-        let s_mkfs_time =
+//        let s_mkfs_time =
             inner.read_u32::<LittleEndian>()?; /* When the filesystem was created */
         let mut s_jnl_blocks = [0; 17 * 4];
         inner.read_exact(&mut s_jnl_blocks)?; /* Backup of the journal inode */
-        let s_blocks_count_hi =
-            inner.read_u32::<LittleEndian>()?; /* Blocks count */
-        let s_r_blocks_count_hi =
-            inner.read_u32::<LittleEndian>()?; /* Reserved blocks count */
-        let s_free_blocks_count_hi =
-            inner.read_u32::<LittleEndian>()?; /* Free blocks count */
-        let s_min_extra_isize =
-            inner.read_u16::<LittleEndian>()?; /* All inodes have at least # bytes */
-        let s_want_extra_isize =
-            inner.read_u16::<LittleEndian>()?; /* New inodes should reserve # bytes */
-        let s_flags =
-            inner.read_u32::<LittleEndian>()?; /* Miscellaneous flags */
+
+        // 64-bit support
+        if false {
+//            let s_blocks_count_hi =
+                inner.read_u32::<LittleEndian>()?; /* Blocks count */
+//            let s_r_blocks_count_hi =
+                inner.read_u32::<LittleEndian>()?; /* Reserved blocks count */
+//            let s_free_blocks_count_hi =
+                inner.read_u32::<LittleEndian>()?; /* Free blocks count */
+//            let s_min_extra_isize =
+                inner.read_u16::<LittleEndian>()?; /* All inodes have at least # bytes */
+//            let s_want_extra_isize =
+                inner.read_u16::<LittleEndian>()?; /* New inodes should reserve # bytes */
+//            let s_flags =
+                inner.read_u32::<LittleEndian>()?; /* Miscellaneous flags */
+        }
 
         if EXT4_SUPER_MAGIC != s_magic {
             return Err(parse_error(format!("invalid magic number: {:x} should be {:x}", EXT4_SUPER_MAGIC, s_magic)));
+        }
+
+        if 0 != s_creator_os {
+            return Err(parse_error(format!("only support filesystems created on linux, not '{}'", s_creator_os)));
+        }
+
+        {
+            const S_STATE_UNMOUNTED_CLEANLY: u16 = 0b01;
+            const S_STATE_ERRORS_DETECTED: u16 = 0b10;
+
+            if s_state & S_STATE_UNMOUNTED_CLEANLY == 0 || s_state & S_STATE_ERRORS_DETECTED != 0 {
+                return Err(parse_error(format!("filesystem is not in a clean state: {:b}", s_state)));
+            }
         }
 
         let block_size: u32 = match s_log_block_size {
@@ -290,12 +306,12 @@ impl SuperBlock {
         let incompatible_features = IncompatibleFeature::from_bits(s_feature_incompat)
             .ok_or_else(|| parse_error(format!("completely unsupported feature flag: {:b}", s_feature_incompat)))?;
 
-        let supported_compatible_features =
+        let supported_incompatible_features =
             INCOMPAT_FILETYPE
             | INCOMPAT_EXTENTS
             | INCOMPAT_FLEX_BG;
 
-        if supported_compatible_features != incompatible_features {
+        if supported_incompatible_features != incompatible_features {
             return Err(parse_error(format!("some unsupported incompatible feature flags: {:?}", incompatible_features)));
         }
 
