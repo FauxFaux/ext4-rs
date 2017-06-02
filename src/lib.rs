@@ -76,6 +76,17 @@ pub enum FileType {
     Socket,          // S_IFSOCK (Socket)
 }
 
+#[derive(Debug)]
+pub enum Enhanced {
+    RegularFile,
+    SymbolicLink(String),
+    CharacterDevice(u16, u32),
+    BlockDevice(u16, u32),
+    Directory(Vec<DirEntry>),
+    Fifo,
+    Socket,
+}
+
 impl FileType {
     fn from_mode(mode: u16) -> Option<FileType> {
         match mode >> 12 {
@@ -105,14 +116,14 @@ impl FileType {
 }
 
 #[derive(Debug)]
-struct DirEntry {
-    inode: u32,
-    file_type: FileType,
-    name: String,
+pub struct DirEntry {
+    pub inode: u32,
+    pub file_type: FileType,
+    pub name: String,
 }
 
 #[derive(Debug)]
-pub struct Extent {
+struct Extent {
     block: u32,
     start: u64,
     len: u16,
@@ -134,6 +145,7 @@ pub struct Stat {
 
 pub struct Inode {
     pub stat: Stat,
+    pub number: u32,
     flags: InodeFlags,
     block: [u8; 4 * 15],
 }
@@ -592,6 +604,7 @@ impl SuperBlock {
 
         Ok(Inode {
             stat,
+            number: inode,
             flags: InodeFlags::from_bits(i_flags)
                 .expect("unrecognised inode flags"),
             block,
@@ -713,22 +726,19 @@ impl SuperBlock {
                 let rec_len = inner.read_u16::<LittleEndian>()?;
                 let name_len = inner.read_u8()?;
                 let file_type = inner.read_u8()?;
-                let mut name = Vec::new();
-                name.resize(name_len as usize, 0);
+                let mut name = vec![0u8; name_len as usize];
                 inner.read_exact(&mut name)?;
                 inner.seek(io::SeekFrom::Current(rec_len as i64 - name_len as i64 - 4 - 2 - 2))?;
                 if 0 != child_inode {
                     let name = std::str::from_utf8(&name).map_err(|e|
                         parse_error(format!("invalid utf-8 in file name: {}", e)))?;
 
-                    if "." != name && ".." != name {
-                        dirs.push(DirEntry {
-                            inode: child_inode,
-                            name: name.to_string(),
-                            file_type: FileType::from_dir_hint(file_type)
-                                .expect("valid file type"),
-                        });
-                    }
+                    dirs.push(DirEntry {
+                        inode: child_inode,
+                        name: name.to_string(),
+                        file_type: FileType::from_dir_hint(file_type)
+                            .expect("valid file type"),
+                    });
                 }
 
                 read += rec_len as usize;
@@ -749,50 +759,56 @@ impl SuperBlock {
 
     pub fn walk<R>(&self, mut inner: &mut R, inode: &Inode, path: String) -> io::Result<()>
         where R: io::Read + io::Seek {
-        for entry in self.read_directory(&mut inner, inode)? {
-            let i = self.load_inode(&mut inner, entry.inode)?;
+        let enhanced = self.enhance(inner, inode)?;
 
-            match entry.file_type {
-                FileType::Directory => {
-                    self.walk(inner, &i, format!("{}/{}", path, entry.name)).map_err(|e|
-                        parse_error(format!("while processing {}: {}", path, e)))?;
-                },
-                FileType::RegularFile | FileType::Fifo | FileType::Socket => {
-                    println!("{}/{} <{}> file; {:?}", path, entry.name, entry.inode, i.stat);
-                },
-                FileType::SymbolicLink => {
-                    let dest = if i.stat.size < 60 {
-                        assert!(i.flags.is_empty());
-                        std::str::from_utf8(&i.block[0..i.stat.size as usize]).expect("utf-8").to_string()
-                    } else {
-                        assert!(i.only_relevant_flag_is_extents());
-                        let extents = self.load_extent_tree(inner, i.block)?;
-                        std::str::from_utf8(&self.load_all(inner, &i, &extents)?).expect("utf-8").to_string()
-                    };
-                    println!("{}/{} <{}> symlink to: {:?}", path, entry.name, entry.inode, dest);
+        println!("{}: {:?} {:?}", path, enhanced, inode.stat);
+
+        if let Enhanced::Directory(entries) = enhanced {
+            for entry in entries {
+                if "." == entry.name || ".." == entry.name {
+                    continue;
                 }
-                FileType::CharacterDevice | FileType::BlockDevice => {
-                    let maj: u16;
-                    let min: u32;
-                    if 0 != i.block[0] || 0 != i.block[1] {
-                        maj = i.block[1] as u16;
-                        min = i.block[0] as u32;
-                    } else {
-                        // if you think reading this is bad, I had to write it
-                        maj = i.block[5] as u16
-                            | (((i.block[6] & 0b0000_1111) as u16) << 8);
-                        min = i.block[4] as u32
-                            | ((i.block[7] as u32) << 12)
-                            | (((i.block[6] & 0b1111_0000) as u32) >> 4) << 8;
-                    }
-                    println!("{}/{} <{}> {:?}: {}, {}", path, entry.name, entry.inode, entry.file_type, maj, min);
-                }
+
+                let child_node = self.load_inode(inner, entry.inode)?;
+                self.walk(inner, &child_node, format!("{}/{}", path, entry.name))?;
             }
         }
+
+//    self.walk(inner, &i, format!("{}/{}", path, entry.name)).map_err(|e|
+//    parse_error(format!("while processing {}: {}", path, e)))?;
+
         Ok(())
     }
 
-    pub fn load_all<R>(&self, mut inner: &mut R, inode: &Inode, extents: &[Extent]) -> io::Result<Vec<u8>>
+    pub fn enhance<R>(&self, mut inner: &mut R, inode: &Inode) -> io::Result<Enhanced>
+        where R: io::Read + io::Seek {
+        Ok(match inode.stat.extracted_type {
+            FileType::RegularFile => Enhanced::RegularFile,
+            FileType::Socket => Enhanced::Socket,
+            FileType::Fifo => Enhanced::Fifo,
+
+            FileType::Directory => Enhanced::Directory(self.read_directory(inner, inode)?),
+            FileType::SymbolicLink =>
+                Enhanced::SymbolicLink(if inode.stat.size < 60 {
+                    assert!(inode.flags.is_empty());
+                    std::str::from_utf8(&inode.block[0..inode.stat.size as usize]).expect("utf-8").to_string()
+                } else {
+                    assert!(inode.only_relevant_flag_is_extents());
+                    let extents = self.load_extent_tree(inner, inode.block)?;
+                    std::str::from_utf8(&self.load_all(inner, inode, &extents)?).expect("utf-8").to_string()
+                }),
+            FileType::CharacterDevice => {
+                let (maj, min) = load_maj_min(inode.block);
+                Enhanced::CharacterDevice(maj, min)
+            }
+            FileType::BlockDevice => {
+                let (maj, min) = load_maj_min(inode.block);
+                Enhanced::BlockDevice(maj, min)
+            }
+        })
+    }
+
+    fn load_all<R>(&self, mut inner: &mut R, inode: &Inode, extents: &[Extent]) -> io::Result<Vec<u8>>
     where R: io::Read + io::Seek {
 
         #[allow(unknown_lints, absurd_extreme_comparisons)] {
@@ -827,6 +843,19 @@ impl SuperBlock {
         }
 
         Ok(ret)
+    }
+}
+
+fn load_maj_min(block: [u8; 4 * 15]) -> (u16, u32) {
+    if 0 != block[0] || 0 != block[1] {
+        (block[1] as u16, block[0] as u32)
+    } else {
+        // if you think reading this is bad, I had to write it
+        (block[5] as u16
+            | (((block[6] & 0b0000_1111) as u16) << 8),
+        block[4] as u32
+            | ((block[7] as u32) << 12)
+            | (((block[6] & 0b1111_0000) as u32) >> 4) << 8)
     }
 }
 
