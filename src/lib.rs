@@ -225,6 +225,23 @@ impl SuperBlock {
             inner.read_u32::<LittleEndian>()?; /* compatible feature set */
         let s_feature_incompat =
             inner.read_u32::<LittleEndian>()?; /* incompatible feature set */
+
+        let incompatible_features = IncompatibleFeature::from_bits(s_feature_incompat)
+            .ok_or_else(|| parse_error(format!("completely unsupported feature flag: {:b}", s_feature_incompat)))?;
+
+        let supported_incompatible_features =
+            INCOMPAT_FILETYPE
+                | INCOMPAT_EXTENTS
+                | INCOMPAT_FLEX_BG
+                | INCOMPAT_64BIT;
+
+        if incompatible_features.intersects(!supported_incompatible_features) {
+            return Err(parse_error(format!("some unsupported incompatible feature flags: {:?}",
+                                           incompatible_features & !supported_incompatible_features)));
+        }
+
+        let long_structs = incompatible_features.contains(INCOMPAT_64BIT);
+
 //        let s_feature_ro_compat =
             inner.read_u32::<LittleEndian>()?; /* readonly-compatible feature set */
         let mut s_uuid = [0; 16];
@@ -266,21 +283,30 @@ impl SuperBlock {
         let mut s_jnl_blocks = [0; 17 * 4];
         inner.read_exact(&mut s_jnl_blocks)?; /* Backup of the journal inode */
 
-        // 64-bit support
-        if false {
-//            let s_blocks_count_hi =
-                inner.read_u32::<LittleEndian>()?; /* Blocks count */
-//            let s_r_blocks_count_hi =
-                inner.read_u32::<LittleEndian>()?; /* Reserved blocks count */
-//            let s_free_blocks_count_hi =
-                inner.read_u32::<LittleEndian>()?; /* Free blocks count */
-//            let s_min_extra_isize =
-                inner.read_u16::<LittleEndian>()?; /* All inodes have at least # bytes */
-//            let s_want_extra_isize =
-                inner.read_u16::<LittleEndian>()?; /* New inodes should reserve # bytes */
-//            let s_flags =
-                inner.read_u32::<LittleEndian>()?; /* Miscellaneous flags */
-        }
+        let s_blocks_count_hi =
+            if !long_structs { None } else {
+                Some(inner.read_u32::<LittleEndian>()?) /* Blocks count */
+            };
+////        let s_r_blocks_count_hi =
+//            if !long_structs { None } else {
+//                Some(inner.read_u32::<LittleEndian>()?) /* Reserved blocks count */
+//            };
+////        let s_free_blocks_count_hi =
+//            if !long_structs { None } else {
+//                Some(inner.read_u32::<LittleEndian>()?) /* Free blocks count */
+//            };
+////        let s_min_extra_isize =
+//            if !long_structs { None } else {
+//                Some(inner.read_u16::<LittleEndian>()?) /* All inodes have at least # bytes */
+//            };
+////        let s_want_extra_isize =
+//            if !long_structs { None } else {
+//                Some(inner.read_u16::<LittleEndian>()?) /* New inodes should reserve # bytes */
+//            };
+////        let s_flags =
+//            if !long_structs { None } else {
+//                Some(inner.read_u32::<LittleEndian>()?) /* Miscellaneous flags */
+//            };
 
         if EXT4_SUPER_MAGIC != s_magic {
             return Err(parse_error(format!("invalid magic number: {:x} should be {:x}", s_magic, EXT4_SUPER_MAGIC)));
@@ -313,21 +339,9 @@ impl SuperBlock {
             }
         };
 
-        let incompatible_features = IncompatibleFeature::from_bits(s_feature_incompat)
-            .ok_or_else(|| parse_error(format!("completely unsupported feature flag: {:b}", s_feature_incompat)))?;
-
-        let supported_incompatible_features =
-            INCOMPAT_FILETYPE
-            | INCOMPAT_EXTENTS
-            | INCOMPAT_FLEX_BG;
-
-        if supported_incompatible_features != incompatible_features {
-            return Err(parse_error(format!("some unsupported incompatible feature flags: {:?}", incompatible_features)));
+        if !long_structs {
+            assert_eq!(0, s_desc_size);
         }
-
-        // 64-bit mode isn't enabled (in the incompat features),
-        // so this must be unset, and we'll assume short format.
-        assert_eq!(0, s_desc_size);
 
         if 1 != s_rev_level {
             return Err(parse_error(format!("unsupported rev_level {}", s_rev_level)));
@@ -344,7 +358,11 @@ impl SuperBlock {
         };
 
         inner.seek(io::SeekFrom::Start(group_table_pos as u64))?;
-        let blocks_count = (s_blocks_count_lo - s_first_data_block + s_blocks_per_group - 1) / s_blocks_per_group;
+        let blocks_count = (
+            s_blocks_count_lo as u64
+            + ((s_blocks_count_hi.unwrap_or(0) as u64) << 32)
+            - s_first_data_block as u64 + s_blocks_per_group as u64 - 1
+        ) / s_blocks_per_group as u64;
 
         let mut groups = Vec::with_capacity(blocks_count as usize);
 
@@ -374,32 +392,46 @@ impl SuperBlock {
 //            let bg_checksum =
                 inner.read_u16::<LittleEndian>()?; /* crc16(sb_uuid+group+desc) */
 
-            // 64-bit support
-            if false {
-//                let bg_block_bitmap_hi =
-                    inner.read_u32::<LittleEndian>()?; /* Blocks bitmap block MSB */
-//                let bg_inode_bitmap_hi =
-                    inner.read_u32::<LittleEndian>()?; /* Inodes bitmap block MSB */
-//                let bg_inode_table_hi =
-                    inner.read_u32::<LittleEndian>()?; /* Inodes table block MSB */
-//                let bg_free_blocks_count_hi =
-                    inner.read_u16::<LittleEndian>()?; /* Free blocks count MSB */
-//                let bg_free_inodes_count_hi =
-                    inner.read_u16::<LittleEndian>()?; /* Free inodes count MSB */
-//                let bg_used_dirs_count_hi =
-                    inner.read_u16::<LittleEndian>()?; /* Directories count MSB */
-//                let bg_itable_unused_hi =
-                    inner.read_u16::<LittleEndian>()?; /* Unused inodes count MSB */
-//                let bg_exclude_bitmap_hi =
-                    inner.read_u32::<LittleEndian>()?; /* Exclude bitmap block MSB */
-//                let bg_block_bitmap_csum_hi =
-                    inner.read_u16::<LittleEndian>()?; /* crc32c(s_uuid+grp_num+bbitmap) BE */
-//                let bg_inode_bitmap_csum_hi =
-                    inner.read_u16::<LittleEndian>()?; /* crc32c(s_uuid+grp_num+ibitmap) BE */
+//            let bg_block_bitmap_hi =
+                if s_desc_size < 4 { None } else {
+                    Some(inner.read_u32::<LittleEndian>()?) /* Blocks bitmap block MSB */
+                };
+//            let bg_inode_bitmap_hi =
+                if s_desc_size < 4 + 4 { None } else {
+                    Some(inner.read_u32::<LittleEndian>()?) /* Inodes bitmap block MSB */
+                };
+            let bg_inode_table_hi =
+                if s_desc_size < 4 + 4 + 4 { None } else {
+                    Some(inner.read_u32::<LittleEndian>()?) /* Inodes table block MSB */
+                };
+//            let bg_free_blocks_count_hi =
+                if s_desc_size < 4 + 4 + 4 + 2 { None } else {
+                    Some(inner.read_u16::<LittleEndian>()?) /* Free blocks count MSB */
+                };
+            let bg_free_inodes_count_hi =
+                if s_desc_size < 4 + 4 + 4 + 2 + 2 { None } else {
+                    Some(inner.read_u16::<LittleEndian>()?) /* Free inodes count MSB */
+                };
+
+//          let bg_used_dirs_count_hi =
+//              inner.read_u16::<LittleEndian>()?; /* Directories count MSB */
+//          let bg_itable_unused_hi =
+//              inner.read_u16::<LittleEndian>()?; /* Unused inodes count MSB */
+//          let bg_exclude_bitmap_hi =
+//              inner.read_u32::<LittleEndian>()?; /* Exclude bitmap block MSB */
+//          let bg_block_bitmap_csum_hi =
+//              inner.read_u16::<LittleEndian>()?; /* crc32c(s_uuid+grp_num+bbitmap) BE */
+//          let bg_inode_bitmap_csum_hi =
+//              inner.read_u16::<LittleEndian>()?; /* crc32c(s_uuid+grp_num+ibitmap) BE */
+
+            if s_desc_size > 16 {
+                inner.seek(io::SeekFrom::Current((s_desc_size - 16) as i64))?;
             }
 
-            let inode_table_block = bg_inode_table_lo as u64;
-            let free_inodes_count = bg_free_inodes_count_lo as u32;
+            let inode_table_block = bg_inode_table_lo as u64
+                | ((bg_inode_table_hi.unwrap_or(0) as u64) << 32);
+            let free_inodes_count = bg_free_inodes_count_lo as u32
+                | ((bg_free_inodes_count_hi.unwrap_or(0) as u32) << 16);
 
             let unallocated = bg_flags & EXT4_BLOCK_GROUP_INODES_UNUSED != 0 || bg_flags & EXT4_BLOCK_GROUP_BLOCKS_UNUSED != 0;
 

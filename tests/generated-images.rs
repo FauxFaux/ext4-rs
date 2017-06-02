@@ -8,7 +8,8 @@ use std::path;
 fn all_types() {
     for file in path::Path::new("tests/generated").read_dir().unwrap() {
         let file = file.unwrap();
-        if !file.file_name().into_string().unwrap().starts_with("all-types") {
+        let image_name = file.file_name().into_string().unwrap();
+        if !image_name.starts_with("all-types") {
             continue;
         }
 
@@ -21,8 +22,7 @@ fn all_types() {
             let mut part_reader = ext4::mbr::read_partition(&mut img, part).unwrap();
             let superblock = ext4::SuperBlock::load(&mut part_reader).unwrap();
             let root = superblock.root(&mut part_reader).unwrap();
-            superblock.walk(&mut part_reader, &root, "".to_string()).unwrap();
+            superblock.walk(&mut part_reader, &root, image_name.to_string()).unwrap();
         }
-
     }
 }
