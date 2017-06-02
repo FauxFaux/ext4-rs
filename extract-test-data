@@ -1,4 +1,17 @@
 #!/bin/sh
 set -eu
 
+if [ $# -ne 0 ]; then
+    if [ $# -ne 1 ]; then
+        echo too many options
+        exit 2
+    fi
+    if [ "$1" = "--refresh" ]; then
+        (cd scripts/generate-images && make)
+    else
+        echo usage: $0 [--refresh]
+        exit 2
+    fi
+fi
+
 tar -C src/test-data/generated -xf scripts/generate-images/images.tgz
