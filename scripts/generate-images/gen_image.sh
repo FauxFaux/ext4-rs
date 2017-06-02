@@ -21,5 +21,6 @@ H=$(pwd)
 sudo umount "$D"
 rm -r "$D"
 sudo losetup -d "$L"
-mv "$T" "$2"
+cp --sparse=always "$T" "$2"
+rm "$T"
 trap '' EXIT

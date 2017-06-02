@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+
+tar -C src/test-data/generated -xf scripts/generate-images/images.tgz

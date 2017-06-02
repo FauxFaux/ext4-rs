@@ -845,7 +845,7 @@ mod tests {
 
     #[test]
     fn partitions() {
-        let mut img = io::BufReader::new(fs::File::open("src/test-data/generated-images/all-types.img").expect("test-data"));
+        let mut img = io::BufReader::new(fs::File::open("src/test-data/generated/all-types.img").expect("test-data"));
         for part in mbr::read_partition_table(&mut img).expect("read") {
             if 0x83 != part.type_code {
                 continue;
