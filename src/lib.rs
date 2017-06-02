@@ -701,34 +701,33 @@ impl SuperBlock {
         };
 
         let total_len = data.len();
-        let mut inner = io::Cursor::new(data);
-        {
-            let mut read = 0usize;
-            loop {
-                let child_inode = inner.read_u32::<LittleEndian>()?;
-                let rec_len = inner.read_u16::<LittleEndian>()?;
-                let name_len = inner.read_u8()?;
-                let file_type = inner.read_u8()?;
-                let mut name = vec![0u8; name_len as usize];
-                inner.read_exact(&mut name)?;
-                inner.seek(io::SeekFrom::Current(rec_len as i64 - name_len as i64 - 4 - 2 - 2))?;
-                if 0 != child_inode {
-                    let name = std::str::from_utf8(&name).map_err(|e|
-                        parse_error(format!("invalid utf-8 in file name: {}", e)))?;
 
-                    dirs.push(DirEntry {
-                        inode: child_inode,
-                        name: name.to_string(),
-                        file_type: FileType::from_dir_hint(file_type)
-                            .expect("valid file type"),
-                    });
-                }
+        let mut cursor = io::Cursor::new(data);
+        let mut read = 0usize;
+        loop {
+            let child_inode = cursor.read_u32::<LittleEndian>()?;
+            let rec_len = cursor.read_u16::<LittleEndian>()?;
+            let name_len = cursor.read_u8()?;
+            let file_type = cursor.read_u8()?;
+            let mut name = vec![0u8; name_len as usize];
+            cursor.read_exact(&mut name)?;
+            cursor.seek(io::SeekFrom::Current(rec_len as i64 - name_len as i64 - 4 - 2 - 2))?;
+            if 0 != child_inode {
+                let name = std::str::from_utf8(&name).map_err(|e|
+                    parse_error(format!("invalid utf-8 in file name: {}", e)))?;
 
-                read += rec_len as usize;
-                if read >= total_len {
-                    assert_eq!(read, total_len);
-                    break;
-                }
+                dirs.push(DirEntry {
+                    inode: child_inode,
+                    name: name.to_string(),
+                    file_type: FileType::from_dir_hint(file_type)
+                        .expect("valid file type"),
+                });
+            }
+
+            read += rec_len as usize;
+            if read >= total_len {
+                assert_eq!(read, total_len);
+                break;
             }
         }
 
