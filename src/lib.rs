@@ -423,8 +423,8 @@ impl SuperBlock {
 
 //      let i_checksum_hi =
             if i_extra_isize < 2 { None } else {
-            Some(inner.read_u16::<BigEndian>()?) /* crc32c(uuid+inum+inode) BE */
-        };
+                Some(inner.read_u16::<BigEndian>()?) /* crc32c(uuid+inum+inode) BE */
+            };
         let i_ctime_extra =
             if i_extra_isize < 2 + 4 { None } else {
                 Some(inner.read_u32::<LittleEndian>()?) /* extra Change time      (nsec << 2 | epoch) */
@@ -447,12 +447,12 @@ impl SuperBlock {
             };
 //      let i_version_hi =
             if i_extra_isize < 2 + 4 + 4 + 4 + 4 + 4 + 4 { None } else {
-            Some(inner.read_u32::<LittleEndian>()?) /* high 32 bits for 64-bit version */
-        };
+               Some(inner.read_u32::<LittleEndian>()?) /* high 32 bits for 64-bit version */
+            };
 //      let i_projid =
             if i_extra_isize < 2 + 4 + 4 + 4 + 4 + 4 + 4 + 4 { None } else {
-            Some(inner.read_u32::<LittleEndian>()?) /* Project ID */
-        };
+                Some(inner.read_u32::<LittleEndian>()?) /* Project ID */
+            };
 
         // TODO: there could be extended attributes to read here
 
