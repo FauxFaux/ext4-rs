@@ -831,13 +831,12 @@ fn as_u32(buf: &[u8]) -> u32 {
 mod tests {
     use std::fs;
     use std::io;
-    use std::io::Read;
 
     use ::mbr;
 
     #[test]
     fn partitions() {
-        let mut img = io::BufReader::new(fs::File::open("src/test-data/simple.img").expect("test-data"));
+        let mut img = io::BufReader::new(fs::File::open("src/test-data/generated-images/all-types.img").expect("test-data"));
         for part in mbr::read_partition_table(&mut img).expect("read") {
             if 0x83 != part.type_code {
                 continue;
