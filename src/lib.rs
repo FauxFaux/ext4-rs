@@ -2,7 +2,6 @@
 extern crate byteorder;
 
 use std::io;
-use std::collections::HashMap;
 
 use byteorder::{ReadBytesExt, LittleEndian, BigEndian};
 
@@ -134,9 +133,8 @@ pub struct Inode {
 
 #[derive(Debug)]
 struct BlockGroup {
-    block_bitmap_block: u64,
     inode_table_block: u64,
-    inodes: u64,
+    inodes: u32,
 }
 
 #[derive(Debug)]
@@ -144,7 +142,7 @@ pub struct SuperBlock {
     block_size: u32,
     inode_size: u16,
     inodes_per_group: u32,
-    groups: HashMap<u16, BlockGroup>,
+    groups: Vec<BlockGroup>,
 }
 
 #[derive(Debug)]
@@ -294,6 +292,10 @@ impl SuperBlock {
             }
         }
 
+        if 0 == s_inodes_per_group {
+            return Err(parse_error("inodes per group cannot be zero".to_string()));
+        }
+
         let block_size: u32 = match s_log_block_size {
             1 => 2048,
             2 => 4096,
@@ -326,70 +328,75 @@ impl SuperBlock {
         inner.seek(io::SeekFrom::Start(block_size as u64 * 1))?;
         let blocks_count = (s_blocks_count_lo - s_first_data_block + s_blocks_per_group - 1) / s_blocks_per_group;
 
-        let mut groups = HashMap::with_capacity(blocks_count as usize);
+        let mut groups = Vec::with_capacity(blocks_count as usize);
 
         for block in 0..blocks_count {
-            let bg_block_bitmap_lo =
+//            let bg_block_bitmap_lo =
                 inner.read_u32::<LittleEndian>()?; /* Blocks bitmap block */
-            let bg_inode_bitmap_lo =
+//            let bg_inode_bitmap_lo =
                 inner.read_u32::<LittleEndian>()?; /* Inodes bitmap block */
             let bg_inode_table_lo =
                 inner.read_u32::<LittleEndian>()?; /* Inodes table block */
-            let bg_free_blocks_count_lo =
+//            let bg_free_blocks_count_lo =
                 inner.read_u16::<LittleEndian>()?; /* Free blocks count */
             let bg_free_inodes_count_lo =
                 inner.read_u16::<LittleEndian>()?; /* Free inodes count */
-            let bg_used_dirs_count_lo =
+//            let bg_used_dirs_count_lo =
                 inner.read_u16::<LittleEndian>()?; /* Directories count */
             let bg_flags =
                 inner.read_u16::<LittleEndian>()?; /* EXT4_BG_flags (INODE_UNINIT, etc) */
-            let bg_exclude_bitmap_lo =
+//            let bg_exclude_bitmap_lo =
                 inner.read_u32::<LittleEndian>()?; /* Exclude bitmap for snapshots */
-            let bg_block_bitmap_csum_lo =
+//            let bg_block_bitmap_csum_lo =
                 inner.read_u16::<LittleEndian>()?; /* crc32c(s_uuid+grp_num+bbitmap) LE */
-            let bg_inode_bitmap_csum_lo =
+//            let bg_inode_bitmap_csum_lo =
                 inner.read_u16::<LittleEndian>()?; /* crc32c(s_uuid+grp_num+ibitmap) LE */
-            let bg_itable_unused_lo =
+//            let bg_itable_unused_lo =
                 inner.read_u16::<LittleEndian>()?; /* Unused inodes count */
-            let bg_checksum =
+//            let bg_checksum =
                 inner.read_u16::<LittleEndian>()?; /* crc16(sb_uuid+group+desc) */
 
+            // 64-bit support
             if false {
-                let bg_block_bitmap_hi =
+//                let bg_block_bitmap_hi =
                     inner.read_u32::<LittleEndian>()?; /* Blocks bitmap block MSB */
-                let bg_inode_bitmap_hi =
+//                let bg_inode_bitmap_hi =
                     inner.read_u32::<LittleEndian>()?; /* Inodes bitmap block MSB */
-                let bg_inode_table_hi =
+//                let bg_inode_table_hi =
                     inner.read_u32::<LittleEndian>()?; /* Inodes table block MSB */
-                let bg_free_blocks_count_hi =
+//                let bg_free_blocks_count_hi =
                     inner.read_u16::<LittleEndian>()?; /* Free blocks count MSB */
-                let bg_free_inodes_count_hi =
+//                let bg_free_inodes_count_hi =
                     inner.read_u16::<LittleEndian>()?; /* Free inodes count MSB */
-                let bg_used_dirs_count_hi =
+//                let bg_used_dirs_count_hi =
                     inner.read_u16::<LittleEndian>()?; /* Directories count MSB */
-                let bg_itable_unused_hi =
+//                let bg_itable_unused_hi =
                     inner.read_u16::<LittleEndian>()?; /* Unused inodes count MSB */
-                let bg_exclude_bitmap_hi =
+//                let bg_exclude_bitmap_hi =
                     inner.read_u32::<LittleEndian>()?; /* Exclude bitmap block MSB */
-                let bg_block_bitmap_csum_hi =
+//                let bg_block_bitmap_csum_hi =
                     inner.read_u16::<LittleEndian>()?; /* crc32c(s_uuid+grp_num+bbitmap) BE */
-                let bg_inode_bitmap_csum_hi =
+//                let bg_inode_bitmap_csum_hi =
                     inner.read_u16::<LittleEndian>()?; /* crc32c(s_uuid+grp_num+ibitmap) BE */
             }
 
-            //
-            if bg_flags & EXT4_BLOCK_GROUP_INODES_UNUSED != 0 || bg_flags & EXT4_BLOCK_GROUP_BLOCKS_UNUSED != 0 {
-                continue;
+            let inode_table_block = bg_inode_table_lo as u64;
+            let free_inodes_count = bg_free_inodes_count_lo as u32;
+
+            let unallocated = bg_flags & EXT4_BLOCK_GROUP_INODES_UNUSED != 0 || bg_flags & EXT4_BLOCK_GROUP_BLOCKS_UNUSED != 0;
+
+            if free_inodes_count > s_inodes_per_group {
+                return Err(parse_error(format!("too many free inodes in group {}: {} > {}",
+                                               block, free_inodes_count, s_inodes_per_group)));
             }
 
-            let block_bitmap_block: u64 = bg_block_bitmap_lo as u64;
-            let inode_bitmap_block: u64 = bg_inode_bitmap_lo as u64;
-            let inode_table_block: u64 = bg_inode_table_lo as u64;
+            let inodes = if unallocated {
+                0
+            } else {
+                s_inodes_per_group - free_inodes_count
+            };
 
-            let inodes = s_inodes_per_group.checked_sub(bg_free_inodes_count_lo as u32).expect("inodes") as u64;
-
-            groups.insert(block as u16, BlockGroup {
-                block_bitmap_block,
+            groups.push(BlockGroup {
                 inode_table_block,
                 inodes,
             });
@@ -409,8 +416,15 @@ impl SuperBlock {
 
         {
             let inode = inode - 1;
-            let block = self.groups[&((inode / self.inodes_per_group) as u16)].inode_table_block;
-            let pos = block * self.block_size as u64 + (inode % self.inodes_per_group) as u64 * self.inode_size as u64;
+            let group_number = inode / self.inodes_per_group;
+            let group = &self.groups[group_number as usize];
+            let inode_index_in_group = inode % self.inodes_per_group;
+            assert!(inode_index_in_group < group.inodes,
+                    "inode <{}> number must fit in group: {} is greater than {} for group {}",
+                    inode + 1,
+                    inode_index_in_group, group.inodes, group_number);
+            let block = group.inode_table_block;
+            let pos = block * self.block_size as u64 + inode_index_in_group as u64 * self.inode_size as u64;
             inner.seek(io::SeekFrom::Start(pos))?;
         }
 
