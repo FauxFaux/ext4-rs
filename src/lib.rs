@@ -138,26 +138,26 @@ pub struct Time {
 }
 
 impl SuperBlock {
-    pub fn load<R>(inner: &mut R) -> io::Result<SuperBlock>
+    pub fn load<R>(mut inner: R) -> io::Result<SuperBlock>
     where R: io::Read + io::Seek {
         inner.seek(io::SeekFrom::Start(1024))?;
         parse::superblock(inner)
     }
 
-    fn load_inode<R>(&self, inner: &mut R, inode: u32) -> io::Result<Inode>
+    pub fn load_inode<R>(&self, mut inner: R, inode: u32) -> io::Result<Inode>
     where R: io::Read + io::Seek {
         inner.seek(io::SeekFrom::Start(self.groups.index_of(inode)))?;
         parse::inode(inner, inode, self.groups.block_size)
     }
 
-    pub fn root<R>(&self, mut inner: &mut R) -> io::Result<Inode>
+    pub fn root<R>(&self, inner: R) -> io::Result<Inode>
         where R: io::Read + io::Seek {
         self.load_inode(inner, 2)
     }
 
-    pub fn walk<R>(&self, mut inner: &mut R, inode: &Inode, path: String) -> io::Result<()>
+    pub fn walk<R>(&self, mut inner: R, inode: &Inode, path: String) -> io::Result<()>
         where R: io::Read + io::Seek {
-        let enhanced = inode.enhance(inner)?;
+        let enhanced = inode.enhance(&mut inner)?;
 
         println!("{}: {:?} {:?}", path, enhanced, inode.stat);
 
@@ -167,8 +167,8 @@ impl SuperBlock {
                     continue;
                 }
 
-                let child_node = self.load_inode(inner, entry.inode)?;
-                self.walk(inner, &child_node, format!("{}/{}", path, entry.name))?;
+                let child_node = self.load_inode(&mut inner, entry.inode)?;
+                self.walk(&mut inner, &child_node, format!("{}/{}", path, entry.name))?;
             }
         }
 
@@ -186,7 +186,7 @@ impl Inode {
         TreeReader::new(inner, self.block_size, self.block)
     }
 
-    pub fn enhance<R>(&self, inner: &mut R) -> io::Result<Enhanced>
+    pub fn enhance<R>(&self, inner: R) -> io::Result<Enhanced>
     where R: io::Read + io::Seek {
         Ok(match self.stat.extracted_type {
             FileType::RegularFile => Enhanced::RegularFile,

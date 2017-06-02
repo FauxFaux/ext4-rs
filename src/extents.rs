@@ -104,7 +104,7 @@ impl<R> io::Read for TreeReader<R>
 
 fn add_found_extents<R>(
     block_size: u32,
-    inner: &mut R,
+    mut inner: &mut R,
     block: &[u8],
     expected_depth: u16,
     extents: &mut Vec<Extent>) -> io::Result<()>
@@ -154,7 +154,7 @@ fn add_found_extents<R>(
     Ok(())
 }
 
-fn load_extent_tree<R>(inner: &mut R, start: [u8; 4 * 15], block_size: u32) -> io::Result<Vec<Extent>>
+fn load_extent_tree<R>(mut inner: R, start: [u8; 4 * 15], block_size: u32) -> io::Result<Vec<Extent>>
     where R: io::Read + io::Seek {
     assert_eq!(0x0a, start[0]);
     assert_eq!(0xf3, start[1]);
@@ -167,7 +167,7 @@ fn load_extent_tree<R>(inner: &mut R, start: [u8; 4 * 15], block_size: u32) -> i
 
     let mut extents = Vec::with_capacity(extent_entries as usize + depth as usize * 200);
 
-    add_found_extents(block_size, inner, &start, depth, &mut extents)?;
+    add_found_extents(block_size, &mut inner, &start, depth, &mut extents)?;
 
     extents.sort_by_key(|e| e.block);
 
