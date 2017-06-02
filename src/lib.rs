@@ -283,7 +283,7 @@ impl SuperBlock {
         }
 
         if EXT4_SUPER_MAGIC != s_magic {
-            return Err(parse_error(format!("invalid magic number: {:x} should be {:x}", EXT4_SUPER_MAGIC, s_magic)));
+            return Err(parse_error(format!("invalid magic number: {:x} should be {:x}", s_magic, EXT4_SUPER_MAGIC)));
         }
 
         if 0 != s_creator_os {
@@ -332,7 +332,17 @@ impl SuperBlock {
             return Err(parse_error(format!("unsupported rev_level {}", s_rev_level)));
         }
 
-        inner.seek(io::SeekFrom::Start(block_size as u64 * 1))?;
+        let group_table_pos = if 1024 == block_size {
+            // for 1k blocks, the table is in the third block, after:
+            1024   // boot sector
+            + 1024 // superblock
+        } else {
+            // for other blocks, the boot sector is in the first 1k of the first block,
+            // followed by the superblock (also in first block), and the group table is afterwards
+            block_size
+        };
+
+        inner.seek(io::SeekFrom::Start(group_table_pos as u64))?;
         let blocks_count = (s_blocks_count_lo - s_first_data_block + s_blocks_per_group - 1) / s_blocks_per_group;
 
         let mut groups = Vec::with_capacity(blocks_count as usize);
