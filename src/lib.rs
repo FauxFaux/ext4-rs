@@ -611,23 +611,6 @@ impl SuperBlock {
         })
     }
 
-//        if false {
-//            println!("{:06}: atime {:?} mode {:04o} type {:?} len {}",
-//                     inode + 1,
-//                     atime, file_mode,
-//                     extracted_type,
-//                     size);
-//            // i_block.iter().map(|b| format!("{:02x} ", b)).collect::<String>()
-//        }
-
-//        if 0 == i_flags {
-//            inner.seek(io::SeekFrom::Current(-256))?;
-//            let mut buf = [0; 256];
-//            inner.read_exact(&mut buf)?;
-//            dbg(&buf);
-//        }
-
-
     fn add_found_extents<R>(
         &self,
         inner: &mut R,
@@ -878,27 +861,12 @@ impl Inode {
     }
 }
 
-#[allow(dead_code)]
-fn dbg(buf: &[u8]) {
-    let bytes_per_line = 32;
-    for i in 0..buf.len() / bytes_per_line {
-        println!("TODO: {}", &buf[i * bytes_per_line..(i + 1) * bytes_per_line]
-            .iter().map(|b| if 0 == *b { " . ".to_string() } else { format!("{:02x} ", b) })
-            .collect::<String>());
-    }
-}
-
-
 fn as_u16(buf: &[u8]) -> u16 {
     buf[0] as u16 + buf[1] as u16 * 0x100
 }
 
 fn as_u32(buf: &[u8]) -> u32 {
     as_u16(buf) as u32 + as_u16(&buf[2..]) as u32 * 0x10000
-}
-
-#[cfg(test)]
-mod tests {
 }
 
 fn parse_error(msg: String) -> io::Error {
