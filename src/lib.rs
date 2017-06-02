@@ -519,7 +519,7 @@ impl SuperBlock {
 
         // TODO: there could be extended attributes to read here
 
-        let meta = Stat {
+        let stat = Stat {
             extracted_type: FileType::from_mode(i_mode)
                 .ok_or_else(|| parse_error(format!("unexpected file type in mode: {:b}", i_mode)))?,
             file_mode: i_mode & 0b111_111_111_111,
@@ -546,7 +546,7 @@ impl SuperBlock {
         };
 
         Ok(Inode {
-            stat: meta,
+            stat,
             flags: InodeFlags::from_bits(i_flags)
                 .expect("unrecognised inode flags"),
             block,
@@ -739,9 +739,17 @@ impl SuperBlock {
     }
 
     pub fn load_all<R>(&self, mut inner: &mut R, inode: &Inode, extents: &[Extent]) -> io::Result<Vec<u8>>
-        where R: io::Read + io::Seek {
+    where R: io::Read + io::Seek {
 
-        assert!(inode.stat.size < std::usize::MAX as u64);
+        #[allow(absurd_extreme_comparisons)] {
+            // this check only makes sense on non-64-bit platforms; on 64-bit usize == u64.
+            if inode.stat.size > std::usize::MAX as u64 {
+                return Err(io::Error::new(io::ErrorKind::InvalidData,
+                                          format!("file is too big for this platform to fit in memory: {}",
+                                                  inode.stat.size)));
+            }
+        }
+
         let size = inode.stat.size as usize;
 
         let mut ret = Vec::with_capacity(size);
