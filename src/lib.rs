@@ -36,6 +36,36 @@ bitflags! {
     }
 }
 
+bitflags! {
+    struct InodeFlags: u32 {
+        const INODE_SECRM        = 0x00000001; /* Secure deletion */
+        const INODE_UNRM         = 0x00000002; /* Undelete */
+        const INODE_COMPR        = 0x00000004; /* Compress file */
+        const INODE_SYNC         = 0x00000008; /* Synchronous updates */
+        const INODE_IMMUTABLE    = 0x00000010; /* Immutable file */
+        const INODE_APPEND       = 0x00000020; /* writes to file may only append */
+        const INODE_NODUMP       = 0x00000040; /* do not dump file */
+        const INODE_NOATIME      = 0x00000080; /* do not update atime */
+        const INODE_DIRTY        = 0x00000100; /* reserved for compression */
+        const INODE_COMPRBLK     = 0x00000200; /* One or more compressed clusters */
+        const INODE_NOCOMPR      = 0x00000400; /* Don't compress */
+        const INODE_ENCRYPT      = 0x00000800; /* encrypted file */
+        const INODE_INDEX        = 0x00001000; /* hash-indexed directory */
+        const INODE_IMAGIC       = 0x00002000; /* AFS directory */
+        const INODE_JOURNAL_DATA = 0x00004000; /* file data should be journaled */
+        const INODE_NOTAIL       = 0x00008000; /* file tail should not be merged */
+        const INODE_DIRSYNC      = 0x00010000; /* dirsync behaviour (directories only) */
+        const INODE_TOPDIR       = 0x00020000; /* Top of directory hierarchies*/
+        const INODE_HUGE_FILE    = 0x00040000; /* Set to each huge file */
+        const INODE_EXTENTS      = 0x00080000; /* Inode uses extents */
+        const INODE_EA_INODE     = 0x00200000; /* Inode used for large EA */
+        const INODE_EOFBLOCKS    = 0x00400000; /* Blocks allocated beyond EOF */
+        const INODE_INLINE_DATA  = 0x10000000; /* Inode has inline data. */
+        const INODE_PROJINHERIT  = 0x20000000; /* Create with parents projid */
+        const INODE_RESERVED     = 0x80000000; /* reserved for ext4 lib */
+    }
+}
+
 #[derive(Debug, PartialEq)]
 enum FileType {
     RegularFile,     // S_IFREG (Regular file)
@@ -100,7 +130,7 @@ pub struct Inode {
     mtime: Time,
     btime: Option<Time>,
     link_count: u16,
-    flags: u32,
+    flags: InodeFlags,
     block: [u8; 4 * 15],
 }
 
@@ -480,7 +510,8 @@ impl SuperBlock {
                 nanos: i_crtime_extra,
             }),
             link_count: i_links_count,
-            flags: i_flags,
+            flags: InodeFlags::from_bits(i_flags)
+                .expect("unrecognised inode flags"),
             block,
         })
     }
@@ -649,7 +680,7 @@ impl SuperBlock {
                 },
                 FileType::SymbolicLink => {
                     let dest = if i.size < 60 {
-                        assert_eq!(0, i.flags);
+                        assert!(i.flags.is_empty());
                         std::str::from_utf8(&i.block[0..i.size as usize]).expect("utf-8").to_string()
                     } else {
                         assert!(i.only_relevant_flag_is_extents());
@@ -702,7 +733,20 @@ impl SuperBlock {
 
 impl Inode {
     fn only_relevant_flag_is_extents(&self) -> bool {
-        self.flags & 0b1101_1111_1111_1110_1010_1011_0000_0100 == 0x00080000
+        self.flags & (
+            INODE_COMPR
+            | INODE_DIRTY
+            | INODE_COMPRBLK
+            | INODE_ENCRYPT
+            | INODE_IMAGIC
+            | INODE_NOTAIL
+            | INODE_TOPDIR
+            | INODE_HUGE_FILE
+            | INODE_EXTENTS
+            | INODE_EA_INODE
+            | INODE_EOFBLOCKS
+            | INODE_INLINE_DATA
+        ) == INODE_EXTENTS
     }
 }
 
