@@ -255,18 +255,7 @@ impl SuperBlock {
 
     fn load_all<R>(&self, inner: &mut R, inode: &Inode) -> io::Result<Vec<u8>>
     where R: io::Read + io::Seek {
-
-        #[allow(unknown_lints, absurd_extreme_comparisons)] {
-            // this check only makes sense on non-64-bit platforms; on 64-bit usize == u64.
-            if inode.stat.size > std::usize::MAX as u64 {
-                return Err(io::Error::new(io::ErrorKind::InvalidData,
-                                          format!("file is too big for this platform to fit in memory: {}",
-                                                  inode.stat.size)));
-            }
-        }
-
-        let size = inode.stat.size as usize;
-
+        let size = usize_check(inode.stat.size)?;
         let mut ret = Vec::with_capacity(size);
 
         assert_eq!(size, self.reader_for(inner, inode)?.read_to_end(&mut ret)?);
@@ -275,7 +264,7 @@ impl SuperBlock {
     }
 
 
-    fn reader_for<R>(&self, inner: R, inode: &Inode) -> io::Result<TreeReader<R>>
+    pub fn reader_for<R>(&self, inner: R, inode: &Inode) -> io::Result<TreeReader<R>>
     where R: io::Read + io::Seek {
         TreeReader::new(inner, self.block_size, inode.block)
     }
@@ -323,4 +312,16 @@ fn as_u32(buf: &[u8]) -> u32 {
 
 fn parse_error(msg: String) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidInput, msg)
+}
+
+#[allow(unknown_lints, absurd_extreme_comparisons)]
+fn usize_check(val: u64) -> io::Result<usize> {
+    // this check only makes sense on non-64-bit platforms; on 64-bit usize == u64.
+    if val > std::usize::MAX as u64 {
+        Err(io::Error::new(io::ErrorKind::InvalidData,
+                                  format!("value is too big for memory on this platform: {}",
+                                          val)))
+    } else {
+        Ok(val as usize)
+    }
 }

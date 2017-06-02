@@ -1,4 +1,3 @@
-use std;
 use std::io;
 
 use byteorder::{ReadBytesExt, LittleEndian};
@@ -29,17 +28,7 @@ impl BlockGroups {
         block_size: u32,
         inode_size: u16) -> io::Result<BlockGroups>
     where R: io::Read + io::Seek {
-
-        #[allow(unknown_lints, absurd_extreme_comparisons)] {
-            // this check only makes sense on non-64-bit platforms; on 64-bit usize == u64.
-            if blocks_count > std::usize::MAX as u64 {
-                return Err(io::Error::new(io::ErrorKind::InvalidData,
-                                          format!("too many extents for this platform to fit in memory: {}",
-                                                  blocks_count)));
-            }
-        }
-
-        let blocks_count = blocks_count as usize;
+        let blocks_count = ::usize_check(blocks_count)?;
 
         let mut groups = Vec::with_capacity(blocks_count);
 
