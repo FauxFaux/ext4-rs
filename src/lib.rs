@@ -1,5 +1,3 @@
-#![feature(associated_consts)] // for enum only
-
 #[macro_use] extern crate bitflags;
 extern crate byteorder;
 
