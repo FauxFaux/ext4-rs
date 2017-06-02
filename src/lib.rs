@@ -155,10 +155,13 @@ where R: io::Read + io::Seek {
         self.load_inode(2)
     }
 
-    pub fn walk(&mut self, inode: &Inode, path: String) -> io::Result<()>{
+    pub fn walk<F>(&mut self, inode: &Inode, path: String, visit: &F) -> io::Result<bool>
+    where F: Fn(&str, u32, &Stat, &Enhanced) -> io::Result<bool> {
         let enhanced = inode.enhance(&mut self.inner)?;
 
-        println!("{}: {:?} {:?}", path, enhanced, inode.stat);
+        if !visit(path.as_str(), inode.number, &inode.stat, &enhanced)? {
+            return Ok(false);
+        }
 
         if let Enhanced::Directory(entries) = enhanced {
             for entry in entries {
@@ -167,14 +170,16 @@ where R: io::Read + io::Seek {
                 }
 
                 let child_node = self.load_inode(entry.inode)?;
-                self.walk(&child_node, format!("{}/{}", path, entry.name))?;
+                if !self.walk(&child_node, format!("{}/{}", path, entry.name), visit)? {
+                    return Ok(false)
+                }
             }
         }
 
 //    self.walk(inner, &i, format!("{}/{}", path, entry.name)).map_err(|e|
 //    parse_error(format!("while processing {}: {}", path, e)))?;
 
-        Ok(())
+        Ok(true)
     }
 }
 

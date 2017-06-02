@@ -22,7 +22,10 @@ fn all_types() {
             let mut part_reader = ext4::mbr::read_partition(&mut img, &part).unwrap();
             let mut superblock = ext4::SuperBlock::load(&mut part_reader).unwrap();
             let root = superblock.root().unwrap();
-            superblock.walk(&root, image_name.to_string()).unwrap();
+            superblock.walk(&root, image_name.to_string(), &|path, number, stat, enhanced| {
+                println!("<{}> {}: {:?} {:?}", number, path, enhanced, stat);
+                Ok(true)
+            }).unwrap();
         }
     }
 }
