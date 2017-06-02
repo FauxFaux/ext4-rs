@@ -741,7 +741,7 @@ impl SuperBlock {
     pub fn load_all<R>(&self, mut inner: &mut R, inode: &Inode, extents: &[Extent]) -> io::Result<Vec<u8>>
     where R: io::Read + io::Seek {
 
-        #[allow(absurd_extreme_comparisons)] {
+        #[allow(unknown_lints, absurd_extreme_comparisons)] {
             // this check only makes sense on non-64-bit platforms; on 64-bit usize == u64.
             if inode.stat.size > std::usize::MAX as u64 {
                 return Err(io::Error::new(io::ErrorKind::InvalidData,
