@@ -7,6 +7,8 @@ use std::io::Result;
 use std::io::Seek;
 use std::io::SeekFrom;
 
+use ::as_u32;
+
 #[derive(Debug)]
 pub struct Partition {
     pub id: usize,
@@ -122,14 +124,6 @@ pub fn read_partition<R>(inner: R, part: Partition) -> Result<RangeReader<R>>
 where R: Read + Seek
 {
     RangeReader::new(inner, part.first_byte, part.len)
-}
-
-fn as_u16(buf: &[u8]) -> u16 {
-    buf[0] as u16 + buf[1] as u16 * 0x100
-}
-
-fn as_u32(buf: &[u8]) -> u32 {
-    as_u16(buf) as u32 + as_u16(&buf[2..]) as u32 * 0x10000
 }
 
 #[cfg(test)]
