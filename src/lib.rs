@@ -65,7 +65,7 @@ bitflags! {
 }
 
 #[derive(Debug, PartialEq)]
-enum FileType {
+pub enum FileType {
     RegularFile,     // S_IFREG (Regular file)
     SymbolicLink,    // S_IFLNK (Symbolic link)
     CharacterDevice, // S_IFCHR (Character device)
@@ -118,16 +118,16 @@ pub struct Extent {
 }
 
 pub struct Inode {
-    extracted_type: FileType,
-    file_mode: u16,
-    uid: u32,
-    gid: u32,
-    size: u64,
-    atime: Time,
-    ctime: Time,
-    mtime: Time,
-    btime: Option<Time>,
-    link_count: u16,
+    pub extracted_type: FileType,
+    pub file_mode: u16,
+    pub uid: u32,
+    pub gid: u32,
+    pub size: u64,
+    pub atime: Time,
+    pub ctime: Time,
+    pub mtime: Time,
+    pub btime: Option<Time>,
+    pub link_count: u16,
     flags: InodeFlags,
     block: [u8; 4 * 15],
 }
@@ -148,9 +148,9 @@ pub struct SuperBlock {
 }
 
 #[derive(Debug)]
-struct Time {
-    epoch_secs: u32,
-    nanos: Option<u32>,
+pub struct Time {
+    pub epoch_secs: u32,
+    pub nanos: Option<u32>,
 }
 
 impl SuperBlock {
@@ -631,7 +631,7 @@ impl SuperBlock {
                 let file_type = inner.read_u8()?;
                 let mut name = Vec::new();
                 name.resize(name_len as usize, 0);
-                inner.read(&mut name)?;
+                inner.read_exact(&mut name)?;
                 inner.seek(io::SeekFrom::Current(rec_len as i64 - name_len as i64 - 4 - 2 - 2))?;
                 if 0 != child_inode {
                     let name = std::str::from_utf8(&name).map_err(|e|
@@ -699,7 +699,7 @@ impl SuperBlock {
         Ok(())
     }
 
-    pub fn load_all<R>(&self, mut inner: &mut R, inode: &Inode, extents: &Vec<Extent>) -> io::Result<Vec<u8>>
+    pub fn load_all<R>(&self, mut inner: &mut R, inode: &Inode, extents: &[Extent]) -> io::Result<Vec<u8>>
         where R: io::Read + io::Seek {
 
         assert!(inode.size < std::usize::MAX as u64);
@@ -764,7 +764,7 @@ fn as_u16(buf: &[u8]) -> u16 {
 }
 
 fn as_u32(buf: &[u8]) -> u32 {
-    as_u16(&buf) as u32 + as_u16(&buf[2..]) as u32 * 0x10000
+    as_u16(buf) as u32 + as_u16(&buf[2..]) as u32 * 0x10000
 }
 
 #[cfg(test)]
