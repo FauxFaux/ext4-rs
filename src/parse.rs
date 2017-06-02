@@ -28,7 +28,7 @@ bitflags! {
     }
 }
 
-pub fn superblock<R>(mut inner: R) -> io::Result<::SuperBlock>
+pub fn superblock<R>(mut inner: R) -> io::Result<::SuperBlock<R>>
 where R: io::Read + io::Seek {
 
     // <a cut -c 9- | fgrep ' s_' | fgrep -v ERR_ | while read ty nam comment; do printf "let %s =\n  inner.read_%s::<LittleEndian>()?; %s\n" $(echo $nam | tr -d ';') $(echo $ty | sed 's/__le/u/; s/__//') $comment; done
@@ -231,11 +231,12 @@ where R: io::Read + io::Seek {
         - s_first_data_block as u64 + s_blocks_per_group as u64 - 1
     ) / s_blocks_per_group as u64;
 
-    let groups = ::block_groups::BlockGroups::new(inner, blocks_count,
+    let groups = ::block_groups::BlockGroups::new(&mut inner, blocks_count,
                                                 s_desc_size, s_inodes_per_group,
                                                 block_size, s_inode_size)?;
 
     Ok(::SuperBlock {
+        inner,
         groups,
     })
 }

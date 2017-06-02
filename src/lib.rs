@@ -127,7 +127,8 @@ pub struct Inode {
 }
 
 #[derive(Debug)]
-pub struct SuperBlock {
+pub struct SuperBlock<R> {
+    inner: R,
     groups: block_groups::BlockGroups,
 }
 
@@ -137,27 +138,25 @@ pub struct Time {
     pub nanos: Option<u32>,
 }
 
-impl SuperBlock {
-    pub fn load<R>(mut inner: R) -> io::Result<SuperBlock>
-    where R: io::Read + io::Seek {
+impl<R> SuperBlock<R>
+where R: io::Read + io::Seek {
+
+    pub fn load(mut inner: R) -> io::Result<SuperBlock<R>> {
         inner.seek(io::SeekFrom::Start(1024))?;
         parse::superblock(inner)
     }
 
-    pub fn load_inode<R>(&self, mut inner: R, inode: u32) -> io::Result<Inode>
-    where R: io::Read + io::Seek {
-        inner.seek(io::SeekFrom::Start(self.groups.index_of(inode)))?;
-        parse::inode(inner, inode, self.groups.block_size)
+    pub fn load_inode(&mut self, inode: u32) -> io::Result<Inode> {
+        self.inner.seek(io::SeekFrom::Start(self.groups.index_of(inode)))?;
+        parse::inode(&mut self.inner, inode, self.groups.block_size)
     }
 
-    pub fn root<R>(&self, inner: R) -> io::Result<Inode>
-        where R: io::Read + io::Seek {
-        self.load_inode(inner, 2)
+    pub fn root(&mut self) -> io::Result<Inode> {
+        self.load_inode(2)
     }
 
-    pub fn walk<R>(&self, mut inner: R, inode: &Inode, path: String) -> io::Result<()>
-        where R: io::Read + io::Seek {
-        let enhanced = inode.enhance(&mut inner)?;
+    pub fn walk(&mut self, inode: &Inode, path: String) -> io::Result<()>{
+        let enhanced = inode.enhance(&mut self.inner)?;
 
         println!("{}: {:?} {:?}", path, enhanced, inode.stat);
 
@@ -167,8 +166,8 @@ impl SuperBlock {
                     continue;
                 }
 
-                let child_node = self.load_inode(&mut inner, entry.inode)?;
-                self.walk(&mut inner, &child_node, format!("{}/{}", path, entry.name))?;
+                let child_node = self.load_inode(entry.inode)?;
+                self.walk(&child_node, format!("{}/{}", path, entry.name))?;
             }
         }
 
