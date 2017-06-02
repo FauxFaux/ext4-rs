@@ -8,7 +8,7 @@ use byteorder::{ReadBytesExt, LittleEndian, BigEndian};
 use std::io::Read;
 use std::io::Seek;
 
-mod mbr;
+pub mod mbr;
 
 const EXT4_SUPER_MAGIC: u16 = 0xEF53;
 
@@ -838,25 +838,6 @@ fn as_u32(buf: &[u8]) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-    use std::io;
-
-    use ::mbr;
-
-    #[test]
-    fn partitions() {
-        let mut img = io::BufReader::new(fs::File::open("src/test-data/generated/all-types.img").expect("test-data"));
-        for part in mbr::read_partition_table(&mut img).expect("read") {
-            if 0x83 != part.type_code {
-                continue;
-            }
-
-            let mut part_reader = mbr::read_partition(&mut img, part).expect("read");
-            let superblock = ::SuperBlock::load(&mut part_reader).expect("success");
-            let root = superblock.root(&mut part_reader).expect("success");
-            superblock.walk(&mut part_reader, &root, "".to_string()).expect("success");
-        }
-    }
 }
 
 fn parse_error(msg: String) -> io::Error {

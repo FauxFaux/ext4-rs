@@ -38,7 +38,7 @@ I'm not especially interested in resource-constrained platforms: memory and IO a
 Some of the tests read generated image files. These images are not directly checked into git.
 
 Before running any tests (with `cargo test`), please run `./extract-test-data`.
-  This will extract some *apparently* large files to `src/test-data/generated/`.
+  This will extract some *apparently* large files.
 
 These test assets can be rebuilt (on Linux, with root) by running `make`
   in `scripts/generate-images`.

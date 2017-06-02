@@ -14,4 +14,4 @@ if [ $# -ne 0 ]; then
     fi
 fi
 
-tar -C src/test-data/generated -xf scripts/generate-images/images.tgz
+tar -C tests/generated -xf scripts/generate-images/images.tgz
