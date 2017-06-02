@@ -725,7 +725,7 @@ impl SuperBlock {
                     self.walk(inner, &i, format!("{}/{}", path, entry.name)).map_err(|e|
                         parse_error(format!("while processing {}: {}", path, e)))?;
                 },
-                FileType::RegularFile => {
+                FileType::RegularFile | FileType::Fifo | FileType::Socket => {
                     println!("{}/{} <{}> file; {:?}", path, entry.name, entry.inode, i.stat);
                 },
                 FileType::SymbolicLink => {
@@ -742,9 +742,6 @@ impl SuperBlock {
                 FileType::CharacterDevice | FileType::BlockDevice => {
                     assert!(0 != i.block[0] || 0 != i.block[1]);
                     println!("{}/{} <{}> {:?}: {}, {}", path, entry.name, entry.inode, entry.file_type, i.block[1], i.block[0]);
-                }
-                _ => {
-                    panic!("{}/{} {:?} at {}", path, entry.name, entry.file_type, entry.inode);
                 }
             }
         }
