@@ -120,7 +120,7 @@ pub fn parse_partition_table(sector: &[u8], sector_size: u16) -> Result<Vec<Part
     Ok(partitions)
 }
 
-pub fn read_partition<R>(inner: R, part: Partition) -> Result<RangeReader<R>>
+pub fn read_partition<R>(inner: R, part: &Partition) -> Result<RangeReader<R>>
 where R: Read + Seek
 {
     RangeReader::new(inner, part.first_byte, part.len)

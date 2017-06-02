@@ -43,7 +43,7 @@ impl<R> io::Read for TreeReader<R>
 
 
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        if 0 == buf.len() || self.extents.is_empty() {
+        if buf.is_empty() || self.extents.is_empty() {
             return Ok(0);
         }
 
@@ -175,7 +175,21 @@ fn load_extent_tree<R>(inner: &mut R, start: [u8; 4 * 15], block_size: u32) -> i
 }
 
 fn zero(buf: &mut [u8]) {
-    for i in 0..buf.len() {
-        buf[i] = 0;
+    for i in buf {
+        *i = 0;
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn zero_buf() {
+        let mut buf = [7u8; 5];
+        assert_eq!(7, buf[0]);
+        ::extents::zero(&mut buf);
+        for i in &buf {
+            assert_eq!(0, *i);
+        }
     }
 }
