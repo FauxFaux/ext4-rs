@@ -116,7 +116,8 @@ pub struct Extent {
     len: u16,
 }
 
-pub struct Inode {
+#[derive(Debug)]
+pub struct Stat {
     pub extracted_type: FileType,
     pub file_mode: u16,
     pub uid: u32,
@@ -127,6 +128,10 @@ pub struct Inode {
     pub mtime: Time,
     pub btime: Option<Time>,
     pub link_count: u16,
+}
+
+pub struct Inode {
+    pub stat: Stat,
     flags: InodeFlags,
     block: [u8; 4 * 15],
 }
@@ -514,7 +519,7 @@ impl SuperBlock {
 
         // TODO: there could be extended attributes to read here
 
-        Ok(Inode {
+        let meta = Stat {
             extracted_type: FileType::from_mode(i_mode)
                 .ok_or_else(|| parse_error(format!("unexpected file type in mode: {:b}", i_mode)))?,
             file_mode: i_mode & 0b111_111_111_111,
@@ -538,6 +543,10 @@ impl SuperBlock {
                 nanos: i_crtime_extra,
             }),
             link_count: i_links_count,
+        };
+
+        Ok(Inode {
+            stat: meta,
             flags: InodeFlags::from_bits(i_flags)
                 .expect("unrecognised inode flags"),
             block,
@@ -704,18 +713,18 @@ impl SuperBlock {
                         parse_error(format!("while processing {}: {}", path, e)))?;
                 },
                 FileType::RegularFile => {
-                    println!("{}/{} <{}> file; atime: {:?}", path, entry.name, entry.inode, i.atime);
+                    println!("{}/{} <{}> file; {:?}", path, entry.name, entry.inode, i.stat);
                 },
                 FileType::SymbolicLink => {
-                    let dest = if i.size < 60 {
+                    let dest = if i.stat.size < 60 {
                         assert!(i.flags.is_empty());
-                        std::str::from_utf8(&i.block[0..i.size as usize]).expect("utf-8").to_string()
+                        std::str::from_utf8(&i.block[0..i.stat.size as usize]).expect("utf-8").to_string()
                     } else {
                         assert!(i.only_relevant_flag_is_extents());
                         let extents = self.load_extent_tree(inner, i.block)?;
                         std::str::from_utf8(&self.load_all(inner, &i, &extents)?).expect("utf-8").to_string()
                     };
-                    println!("{}/{} <{}> symlink to: {:?} [{}]", path, entry.name, entry.inode, dest, i.size);
+                    println!("{}/{} <{}> symlink to: {:?}", path, entry.name, entry.inode, dest);
                 }
                 FileType::CharacterDevice | FileType::BlockDevice => {
                     assert!(0 != i.block[0] || 0 != i.block[1]);
@@ -732,8 +741,8 @@ impl SuperBlock {
     pub fn load_all<R>(&self, mut inner: &mut R, inode: &Inode, extents: &[Extent]) -> io::Result<Vec<u8>>
         where R: io::Read + io::Seek {
 
-        assert!(inode.size < std::usize::MAX as u64);
-        let size = inode.size as usize;
+        assert!(inode.stat.size < std::usize::MAX as u64);
+        let size = inode.stat.size as usize;
 
         let mut ret = Vec::with_capacity(size);
 
