@@ -10,3 +10,5 @@ ln -s nonsense nonsense-symlink-file
 ln sparse-file hardlink-file
 mknod char-device c 1 3
 mknod block-device b 7 6
+mknod extremely-minor-device c 0 1023997
+mknod extremely-major-device c 4093 0

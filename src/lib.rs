@@ -536,9 +536,9 @@ impl SuperBlock {
             extracted_type: FileType::from_mode(i_mode)
                 .ok_or_else(|| parse_error(format!("unexpected file type in mode: {:b}", i_mode)))?,
             file_mode: i_mode & 0b111_111_111_111,
-            uid: i_uid as u32 + ((l_i_uid_high as u32) << 16),
-            gid: i_gid as u32 + ((l_i_gid_high as u32) << 16),
-            size: (i_size_lo as u64) + ((i_size_high as u64) << 32),
+            uid: i_uid as u32 | ((l_i_uid_high as u32) << 16),
+            gid: i_gid as u32 | ((l_i_gid_high as u32) << 16),
+            size: (i_size_lo as u64) | ((i_size_high as u64) << 32),
             atime: Time {
                 epoch_secs: i_atime,
                 nanos: i_atime_extra,
@@ -740,8 +740,20 @@ impl SuperBlock {
                     println!("{}/{} <{}> symlink to: {:?}", path, entry.name, entry.inode, dest);
                 }
                 FileType::CharacterDevice | FileType::BlockDevice => {
-                    assert!(0 != i.block[0] || 0 != i.block[1]);
-                    println!("{}/{} <{}> {:?}: {}, {}", path, entry.name, entry.inode, entry.file_type, i.block[1], i.block[0]);
+                    let maj: u16;
+                    let min: u32;
+                    if 0 != i.block[0] || 0 != i.block[1] {
+                        maj = i.block[1] as u16;
+                        min = i.block[0] as u32;
+                    } else {
+                        // if you think reading this is bad, I had to write it
+                        maj = i.block[5] as u16
+                            | (((i.block[6] & 0b0000_1111) as u16) << 8);
+                        min = i.block[4] as u32
+                            | ((i.block[7] as u32) << 12)
+                            | (((i.block[6] & 0b1111_0000) as u32) >> 4) << 8;
+                    }
+                    println!("{}/{} <{}> {:?}: {}, {}", path, entry.name, entry.inode, entry.file_type, maj, min);
                 }
             }
         }
