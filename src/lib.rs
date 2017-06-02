@@ -304,6 +304,7 @@ impl SuperBlock {
         }
 
         let block_size: u32 = match s_log_block_size {
+            0 => 1024,
             1 => 2048,
             2 => 4096,
             6 => 65536,
@@ -835,26 +836,14 @@ mod tests {
     use ::mbr;
 
     #[test]
-    fn it_works() {
-        // s losetup -P -f --show ubuntu-16.04-preinstalled-server-armhf+raspi3.img
-        // s chmod a+r /dev/loop0p2
-        let file = fs::File::open("/dev/loop0p2").expect("device setup");
-        let mut r = io::BufReader::new(file);
-        let superblock = ::SuperBlock::load(&mut r).expect("success");
-        let root = superblock.root(&mut r).expect("success");
-        superblock.walk(&mut r, &root, "".to_string()).expect("success");
-    }
-
-    #[test]
     fn partitions() {
-        let file = fs::File::open("/var/tmp/ubuntu-16.04-preinstalled-server-armhf+raspi3.img").expect("file");
-        let mut r = io::BufReader::new(file);
-        for part in mbr::read_partition_table(&mut r).expect("read") {
+        let mut img = io::BufReader::new(fs::File::open("src/test-data/simple.img").expect("test-data"));
+        for part in mbr::read_partition_table(&mut img).expect("read") {
             if 0x83 != part.type_code {
                 continue;
             }
 
-            let mut part_reader = mbr::read_partition(&mut r, part).expect("read");
+            let mut part_reader = mbr::read_partition(&mut img, part).expect("read");
             let superblock = ::SuperBlock::load(&mut part_reader).expect("success");
             let root = superblock.root(&mut part_reader).expect("success");
             superblock.walk(&mut part_reader, &root, "".to_string()).expect("success");
