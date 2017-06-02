@@ -8,6 +8,8 @@ use byteorder::{ReadBytesExt, LittleEndian, BigEndian};
 use std::io::Read;
 use std::io::Seek;
 
+mod mbr;
+
 const EXT4_SUPER_MAGIC: u16 = 0xEF53;
 
 const EXT4_BLOCK_GROUP_INODES_UNUSED: u16 = 0b1;
@@ -818,6 +820,9 @@ fn as_u32(buf: &[u8]) -> u32 {
 mod tests {
     use std::fs;
     use std::io;
+    use std::io::Read;
+
+    use ::mbr;
 
     #[test]
     fn it_works() {
@@ -828,6 +833,22 @@ mod tests {
         let superblock = ::SuperBlock::load(&mut r).expect("success");
         let root = superblock.root(&mut r).expect("success");
         superblock.walk(&mut r, &root, "".to_string()).expect("success");
+    }
+
+    #[test]
+    fn partitions() {
+        let file = fs::File::open("/var/tmp/ubuntu-16.04-preinstalled-server-armhf+raspi3.img").expect("file");
+        let mut r = io::BufReader::new(file);
+        for part in mbr::read_partition_table(&mut r).expect("read") {
+            if 0x83 != part.type_code {
+                continue;
+            }
+
+            let mut part_reader = mbr::read_partition(&mut r, part).expect("read");
+            let superblock = ::SuperBlock::load(&mut part_reader).expect("success");
+            let root = superblock.root(&mut part_reader).expect("success");
+            superblock.walk(&mut part_reader, &root, "".to_string()).expect("success");
+        }
     }
 }
 
