@@ -141,7 +141,7 @@ pub struct Time {
 impl<R> SuperBlock<R>
 where R: io::Read + io::Seek {
 
-    pub fn load(mut inner: R) -> io::Result<SuperBlock<R>> {
+    pub fn new(mut inner: R) -> io::Result<SuperBlock<R>> {
         inner.seek(io::SeekFrom::Start(1024))?;
         parse::superblock(inner)
     }
