@@ -15,4 +15,4 @@ bitflags = "0.9.1"
 byteorder = "1.0.0"
 
 [badges]
-travis-ci = { repository = "https://github.com/FauxFaux/ext4-rs" }
+travis-ci = { repository = "FauxFaux/ext4-rs" }
