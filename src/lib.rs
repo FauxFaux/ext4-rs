@@ -182,6 +182,42 @@ where R: io::Read + io::Seek {
         Ok(true)
     }
 
+    pub fn resolve_path(&mut self, path: &str) -> io::Result<DirEntry> {
+        let path = path.trim_right_matches('/');
+        if path.is_empty() {
+            // this is a bit of a lie, but it works..?
+            return Ok(DirEntry {
+                inode: 2,
+                file_type: FileType::Directory,
+                name: "/".to_string(),
+            });
+        }
+
+        let mut curr = self.root()?;
+
+        let mut parts = path.split('/').collect::<Vec<&str>>();
+        let last = parts.pop().unwrap();
+        for part in parts {
+            if part.is_empty() {
+                continue;
+            }
+
+            let child_inode = self.dir_entry_named(&curr, part)?.inode;
+            curr = self.load_inode(child_inode)?;
+        }
+
+        self.dir_entry_named(&curr, last)
+    }
+
+    fn dir_entry_named(&mut self, inode: &Inode, name: &str) -> io::Result<DirEntry> {
+        if let Enhanced::Directory(entries) = self.enhance(inode)? {
+            entries.into_iter().filter(|entry| entry.name == name).next().ok_or_else(||
+                io::Error::new(io::ErrorKind::NotFound, format!("component {} isn't there", name)))
+        } else {
+            Err(io::Error::new(io::ErrorKind::NotFound, format!("component {} isn't a directory", name)))
+        }
+    }
+
     pub fn open(&mut self, inode: &Inode) -> io::Result<TreeReader<&mut R>> {
         inode.reader(&mut self.inner)
     }

@@ -3,6 +3,11 @@ set -eux
 
 touch empty-file
 mkdir empty-directory
+mkdir -p a/deeply/nested/directory
+mkdir -p a/multiple/entry/directory
+mkdir -p home/faux
+echo 'Hello, world!' > home/faux/hello.txt
+chown 1000:1000 home/faux/hello.txt
 truncate -s 10M sparse-file
 mkfifo fifo-file
 python -c 'import socket as s; sock = s.socket(s.AF_UNIX); sock.bind("sock-file")'

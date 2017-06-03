@@ -4,6 +4,8 @@ use std::fs;
 use std::io;
 use std::path;
 
+use std::io::Read;
+
 #[test]
 fn all_types() {
     for file in path::Path::new("tests/generated").read_dir().unwrap() {
@@ -26,6 +28,12 @@ fn all_types() {
                 println!("<{}> {}: {:?} {:?}", number, path, enhanced, stat);
                 Ok(true)
             }).unwrap();
+
+            let path = superblock.resolve_path("/home/faux/hello.txt").unwrap().inode;
+            let nice_node = superblock.load_inode(path).unwrap();
+            let mut s = String::new();
+            superblock.open(&nice_node).unwrap().read_to_string(&mut s).unwrap();
+            println!("{}", s);
         }
     }
 }
