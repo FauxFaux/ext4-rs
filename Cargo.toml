@@ -1,6 +1,6 @@
 [package]
 name = "ext4"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Chris West (Faux) <git@goeswhere.com>"]
 build = "build.rs"
 
