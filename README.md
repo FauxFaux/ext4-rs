@@ -34,13 +34,12 @@ I'm not especially interested in resource-constrained platforms: memory and IO a
 
 ### Tests
 
-Some of the tests read generated image files. These images are not directly checked into git.
+Some of the tests read generated image files. These images are not directly checked into git,
+  and will be unpacked by `build.rs`. These files are apparently very large, but should take
+  very little space. This requires a decent `tar` to be on the path.
 
-Before running any tests (with `cargo test`), please run `./extract-test-data`.
-  This will extract some *apparently* large files.
-
-These test assets can be rebuilt (on Linux, with root) by running `make`
-  in `scripts/generate-images`.
+These test assets can be rebuilt (on Linux, with root) by running
+  `./extract-test-data --refresh`.
 
 
 ### License note

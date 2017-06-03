@@ -2,6 +2,7 @@
 name = "ext4"
 version = "0.1.0"
 authors = ["Chris West (Faux) <git@goeswhere.com>"]
+build = "build.rs"
 
 [dependencies]
 bitflags = "0.9.1"
