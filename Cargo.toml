@@ -4,6 +4,15 @@ version = "0.1.0"
 authors = ["Chris West (Faux) <git@goeswhere.com>"]
 build = "build.rs"
 
+description = "Read information from EXT4 filesystem images"
+repository = "https://github.com/FauxFaux/ext4-rs"
+readme = "README.md"
+categories = ["filesystem", "os", "parsing"]
+license = "MIT"
+
 [dependencies]
 bitflags = "0.9.1"
 byteorder = "1.0.0"
+
+[badges]
+travis-ci = { repository = "https://github.com/FauxFaux/ext4-rs" }
