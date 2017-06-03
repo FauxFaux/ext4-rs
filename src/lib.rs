@@ -181,16 +181,24 @@ where R: io::Read + io::Seek {
 
         Ok(true)
     }
+
+    pub fn open(&mut self, inode: &Inode) -> io::Result<TreeReader<&mut R>> {
+        inode.reader(&mut self.inner)
+    }
+
+    pub fn enhance(&mut self, inode: &Inode) -> io::Result<Enhanced> {
+        inode.enhance(&mut self.inner)
+    }
 }
 
 impl Inode {
 
-    pub fn reader<R>(&self, inner: R) -> io::Result<TreeReader<R>>
+    fn reader<R>(&self, inner: R) -> io::Result<TreeReader<R>>
     where R: io::Read + io::Seek {
         TreeReader::new(inner, self.block_size, self.block)
     }
 
-    pub fn enhance<R>(&self, inner: R) -> io::Result<Enhanced>
+    fn enhance<R>(&self, inner: R) -> io::Result<Enhanced>
     where R: io::Read + io::Seek {
         Ok(match self.stat.extracted_type {
             FileType::RegularFile => Enhanced::RegularFile,
