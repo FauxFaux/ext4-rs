@@ -211,7 +211,7 @@ where R: io::Read + io::Seek {
 
     fn dir_entry_named(&mut self, inode: &Inode, name: &str) -> io::Result<DirEntry> {
         if let Enhanced::Directory(entries) = self.enhance(inode)? {
-            entries.into_iter().filter(|entry| entry.name == name).next().ok_or_else(||
+            entries.into_iter().find(|entry| entry.name == name).ok_or_else(||
                 io::Error::new(io::ErrorKind::NotFound, format!("component {} isn't there", name)))
         } else {
             Err(io::Error::new(io::ErrorKind::NotFound, format!("component {} isn't a directory", name)))
