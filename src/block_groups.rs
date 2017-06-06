@@ -90,8 +90,8 @@ impl BlockGroups {
 //          let bg_inode_bitmap_csum_hi =
 //              inner.read_u16::<LittleEndian>()?; /* crc32c(s_uuid+grp_num+ibitmap) BE */
 
-            if s_desc_size > 16 {
-                inner.seek(io::SeekFrom::Current((s_desc_size - 16) as i64))?;
+            if s_desc_size > 16 + 32 {
+                inner.seek(io::SeekFrom::Current((s_desc_size - 32 - 16) as i64))?;
             }
 
             let inode_table_block = bg_inode_table_lo as u64
