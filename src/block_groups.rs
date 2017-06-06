@@ -8,7 +8,7 @@ const EXT4_BLOCK_GROUP_BLOCKS_UNUSED: u16 = 0b10;
 #[derive(Debug)]
 struct Entry {
     inode_table_block: u64,
-    inodes: u32,
+    max_inode_number: u32,
 }
 
 #[derive(Debug)]
@@ -106,15 +106,18 @@ impl BlockGroups {
                                                block, free_inodes_count, s_inodes_per_group)));
             }
 
-            let inodes = if unallocated {
+            let max_inode_number = if unallocated {
                 0
             } else {
-                s_inodes_per_group - free_inodes_count
+                // can't use free inodes here, as there can be unallocated ranges in the middle;
+                // would have to parse the bitmap to work that out and it doesn't seem worth
+                // the effort
+                s_inodes_per_group
             };
 
             groups.push(Entry {
                 inode_table_block,
-                inodes,
+                max_inode_number,
             });
         }
 
@@ -133,10 +136,10 @@ impl BlockGroups {
         let group_number = inode / self.inodes_per_group;
         let group = &self.groups[group_number as usize];
         let inode_index_in_group = inode % self.inodes_per_group;
-        assert!(inode_index_in_group < group.inodes,
+        assert!(inode_index_in_group < group.max_inode_number,
                 "inode <{}> number must fit in group: {} is greater than {} for group {}",
                 inode + 1,
-                inode_index_in_group, group.inodes, group_number);
+                inode_index_in_group, group.max_inode_number, group_number);
         let block = group.inode_table_block;
         block * self.block_size as u64 + inode_index_in_group as u64 * self.inode_size as u64
     }
