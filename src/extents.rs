@@ -87,6 +87,7 @@ impl<R> io::Read for TreeReader<R>
 
         // we finished reading the current extent
         let last = self.extents.remove(0);
+        self.pos = 0;
 
         if !self.extents.is_empty() {
             let next = &self.extents[0];

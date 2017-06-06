@@ -266,9 +266,9 @@ impl Inode {
     fn load_all<R>(&self, inner: R) -> io::Result<Vec<u8>>
     where R: io::Read + io::Seek {
         let size = usize_check(self.stat.size)?;
-        let mut ret = Vec::with_capacity(size);
+        let mut ret = vec![0u8; size];
 
-        assert_eq!(size, self.reader(inner)?.read_to_end(&mut ret)?);
+        self.reader(inner)?.read_exact(&mut ret)?;
 
         Ok(ret)
     }
