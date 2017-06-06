@@ -5,6 +5,7 @@ use std::io;
 
 use byteorder::{ReadBytesExt, LittleEndian};
 
+use std::collections::HashMap;
 use std::io::Read;
 use std::io::Seek;
 
@@ -116,6 +117,7 @@ pub struct Stat {
     pub mtime: Time,
     pub btime: Option<Time>,
     pub link_count: u16,
+    pub xattrs: HashMap<String, Vec<u8>>,
 }
 
 pub struct Inode {
@@ -148,7 +150,7 @@ where R: io::Read + io::Seek {
 
     pub fn load_inode(&mut self, inode: u32) -> io::Result<Inode> {
         self.inner.seek(io::SeekFrom::Start(self.groups.index_of(inode)))?;
-        parse::inode(&mut self.inner, inode, self.groups.block_size)
+        parse::inode(&mut self.inner, inode, self.groups.inode_size, self.groups.block_size)
     }
 
     pub fn root(&mut self) -> io::Result<Inode> {

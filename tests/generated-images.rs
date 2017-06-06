@@ -39,5 +39,5 @@ fn all_types() {
         }
     }
 
-    assert_eq!(100, files_successfully_processed);
+    assert_eq!(25 * 4, files_successfully_processed);
 }

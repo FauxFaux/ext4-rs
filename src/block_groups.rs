@@ -16,7 +16,7 @@ pub struct BlockGroups{
     groups: Vec<Entry>,
     inodes_per_group: u32,
     pub block_size: u32,
-    inode_size: u16,
+    pub inode_size: u16,
 }
 
 impl BlockGroups {

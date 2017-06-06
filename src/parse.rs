@@ -4,9 +4,14 @@ use ::Time;
 
 use ::parse_error;
 
+use std::collections::HashMap;
+
 use byteorder::{ReadBytesExt, LittleEndian, BigEndian};
 
 const EXT4_SUPER_MAGIC: u16 = 0xEF53;
+const INODE_BASE_LEN: u32 = 128;
+const INODE_EXTRA_SUPPORTED_FIELDS_LEN: u16 = 28;
+const XATTR_MAGIC: u32 = 0xEA020000;
 
 bitflags! {
     struct IncompatibleFeature: u32 {
@@ -241,7 +246,7 @@ where R: io::Read + io::Seek {
     })
 }
 
-pub fn inode<R>(mut inner: R, inode: u32, block_size: u32) -> io::Result<::Inode>
+pub fn inode<R>(mut inner: R, inode: u32, inode_size: u16, block_size: u32) -> io::Result<::Inode>
 where R: io::Read + io::Seek {
     let i_mode =
         inner.read_u16::<LittleEndian>()?; /* File mode */
@@ -273,7 +278,7 @@ where R: io::Read + io::Seek {
 
 //  let i_generation =
         inner.read_u32::<LittleEndian>()?; /* File version (for NFS) */
-//  let i_file_acl_lo =
+  let i_file_acl_lo =
         inner.read_u32::<LittleEndian>()?; /* File ACL */
     let i_size_high =
         inner.read_u32::<LittleEndian>()?;
@@ -281,7 +286,7 @@ where R: io::Read + io::Seek {
         inner.read_u32::<LittleEndian>()?; /* Obsoleted fragment address */
 //  let l_i_blocks_high =
         inner.read_u16::<LittleEndian>()?;
-//  let l_i_file_acl_high =
+  let l_i_file_acl_high =
         inner.read_u16::<LittleEndian>()?;
     let l_i_uid_high =
         inner.read_u16::<LittleEndian>()?;
@@ -327,7 +332,23 @@ where R: io::Read + io::Seek {
             Some(inner.read_u32::<LittleEndian>()?) /* Project ID */
         };
 
-    // TODO: there could be extended attributes to read here
+    if i_extra_isize > INODE_EXTRA_SUPPORTED_FIELDS_LEN {
+        // skip over any extra fields we don't support
+        inner.seek(io::SeekFrom::Current((i_extra_isize - INODE_EXTRA_SUPPORTED_FIELDS_LEN) as i64))?;
+    }
+
+    // extended attributes after the inode
+    if INODE_BASE_LEN + i_extra_isize as u32 + 4 < inode_size as u32 && XATTR_MAGIC == inner.read_u32::<LittleEndian>()? {
+        panic!("don't want attributes here");
+    }
+
+    let xattrs = if 0 != i_file_acl_lo || 0 != l_i_file_acl_high {
+        let block = i_file_acl_lo as u32 | ((l_i_file_acl_high as u32) << 16);
+        println!("acl lo: {:x} acl high: {:x}", i_file_acl_lo, l_i_file_acl_high);
+        xattr_block(&mut inner, block, block_size)?
+    } else {
+        HashMap::new()
+    };
 
     let stat = ::Stat {
         extracted_type: ::FileType::from_mode(i_mode)
@@ -353,6 +374,7 @@ where R: io::Read + io::Seek {
             nanos: i_crtime_extra,
         }),
         link_count: i_links_count,
+        xattrs,
     };
 
     Ok(::Inode {
@@ -363,4 +385,104 @@ where R: io::Read + io::Seek {
         block,
         block_size,
     })
+}
+
+#[derive(Debug)]
+struct XattrRecord {
+    name: String,
+    disk_offset: u64,
+    len: u32,
+}
+
+fn xattr_block<R>(inner: &mut R, block: u32, block_size: u32) -> io::Result<HashMap<String, Vec<u8>>>
+where R: io::Read + io::Seek {
+    inner.seek(io::SeekFrom::Start(block as u64 * block_size as u64))?;
+
+    assert_eq!(XATTR_MAGIC, inner.read_u32::<LittleEndian>()?);
+
+//  let x_refcount =
+        inner.read_u32::<LittleEndian>()?;
+//  let x_blocks_used =
+        inner.read_u32::<LittleEndian>()?;
+//  let x_hash =
+        inner.read_u32::<LittleEndian>()?;
+//  let x_checksum =
+        inner.read_u32::<LittleEndian>()?;
+//  let x_reserved_1 =
+        inner.read_u32::<LittleEndian>()?;
+//  let x_reserved_2 =
+        inner.read_u32::<LittleEndian>()?;
+
+    // TODO: this varies from The Holy Wiki; there is
+    // no mentioned extra alignment here. The alignment
+    // is nice; it brings us up to a 2x16 byte header.
+
+//  let x_reserved_3 =
+        inner.read_u32::<LittleEndian>()?;
+
+    // TODO: we should almost certainly be validating the blocks_used.
+    let mut records = Vec::new();
+
+    loop {
+        let e_name_len =
+            inner.read_u8()?;
+        let e_name_prefix_magic =
+            inner.read_u8()?;
+        let e_value_offset =
+            inner.read_u16::<LittleEndian>()?;
+        let e_block =
+            inner.read_u32::<LittleEndian>()?;
+
+        if 0 == e_name_len && 0 == e_name_prefix_magic && 0 == e_value_offset && 0 == e_block {
+            break;
+        }
+
+        let e_value_size =
+            inner.read_u32::<LittleEndian>()?;
+//        let e_hash =
+            inner.read_u32::<LittleEndian>()?;
+
+        let mut name_suffix = vec![0u8; e_name_len as usize];
+        inner.read_exact(&mut name_suffix)?;
+
+        let name = format!("{}{}",
+            match e_name_prefix_magic {
+                0 => "",
+                1 => "user.",
+                2 => "system.posix_acl_access",
+                3 => "system.posix_acl_default",
+                4 => "trusted.",
+                6 => "security.",
+                7 => "system.",
+                _ => panic!("unsupported name prefix encoding: {}", e_name_prefix_magic),
+            },
+            String::from_utf8(name_suffix).map_err(|e|
+                    io::Error::new(io::ErrorKind::InvalidData, format!("name is invalid utf-8: {}", e)))?
+        );
+
+        let disk_offset = if 0 == e_block {
+            // TODO: maybe.. track this some other way?
+            let current = inner.seek(io::SeekFrom::Current(0))?;
+            current / block_size as u64
+        } else {
+            e_block as u64
+        } * block_size as u64 + e_value_offset as u64;
+
+        records.push(XattrRecord {
+            name,
+            disk_offset,
+            len: e_value_size,
+        });
+    }
+
+    let mut xattrs = HashMap::with_capacity(records.len());
+
+    for record in records {
+        inner.seek(io::SeekFrom::Start(record.disk_offset))?;
+        let mut value = vec![0u8; record.len as usize];
+        inner.read_exact(&mut value)?;
+        xattrs.insert(record.name, value);
+    }
+
+    Ok(xattrs)
 }
