@@ -1,0 +1,8 @@
+[package]
+name = "ext4tool"
+version = "0.1.0"
+authors = ["Chris West (Faux) <git@goeswhere.com>"]
+
+[dependencies]
+ext4 = { path = ".." }
+clap = "2.23.3"
