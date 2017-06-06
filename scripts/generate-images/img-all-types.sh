@@ -18,7 +18,7 @@ mknod block-device b 7 6
 mknod extremely-minor-device c 0 1023997
 mknod extremely-major-device c 4093 0
 touch single-xattr
-setfacl -m u:nobody:r with-xattrs
+setfacl -m u:nobody:r single-xattr
 
 touch multiple-xattrs
 setfacl -m u:mail:r multiple-xattrs
