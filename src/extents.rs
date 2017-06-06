@@ -23,7 +23,10 @@ impl<R> TreeReader<R>
 where R: io::Read + io::Seek {
     pub fn new(mut inner: R, block_size: u32, block: [u8; 4 * 15]) -> io::Result<TreeReader<R>> {
         let extents = load_extent_tree(&mut inner, block, block_size)?;
+        TreeReader::create(inner, block_size, extents)
+    }
 
+    fn create(mut inner: R, block_size: u32, extents: Vec<Extent>) -> io::Result<TreeReader<R>> {
         assert_eq!(0, extents[0].block);
 
         inner.seek(io::SeekFrom::Start(extents[0].start as u64 * block_size as u64))?;
@@ -95,6 +98,8 @@ impl<R> io::Read for TreeReader<R>
             if 0 != hole_size {
                 // before feeding them the next extent, lets feed them the hole
                 self.sparse_bytes = Some(hole_size);
+            } else {
+                self.inner.seek(io::SeekFrom::Start(self.block_size as u64 * next.start))?;
             }
         }
 
@@ -183,6 +188,40 @@ fn zero(buf: &mut [u8]) {
 
 #[cfg(test)]
 mod tests {
+    use std::io;
+    use std::io::Read;
+    use ::extents::TreeReader;
+    use ::extents::Extent;
+
+    #[test]
+    fn simple_tree() {
+        let all_bytes = io::Cursor::new((0..255u8).collect::<Vec<u8>>());
+        let mut reader = TreeReader::create(all_bytes,
+            4,
+            vec![
+                Extent {
+                    block: 0,
+                    start: 10,
+                    len: 1,
+                },
+                Extent {
+                    block: 1,
+                    start: 20,
+                    len: 2,
+                }
+            ]
+        ).unwrap();
+
+        let mut res = Vec::new();
+        assert_eq!(4 + 4 * 2, reader.read_to_end(&mut res).unwrap());
+
+        assert_eq!(vec![
+            40, 41, 42, 43,
+            80, 81, 82, 83,
+            84, 85, 86, 87,
+        ], res);
+    }
+
     #[test]
     fn zero_buf() {
         let mut buf = [7u8; 5];
