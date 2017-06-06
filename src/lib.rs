@@ -155,8 +155,8 @@ where R: io::Read + io::Seek {
         self.load_inode(2)
     }
 
-    pub fn walk<F>(&mut self, inode: &Inode, path: String, visit: &F) -> io::Result<bool>
-    where F: Fn(&str, u32, &Stat, &Enhanced) -> io::Result<bool> {
+    pub fn walk<F>(&mut self, inode: &Inode, path: String, visit: &mut F) -> io::Result<bool>
+    where F: FnMut(&str, u32, &Stat, &Enhanced) -> io::Result<bool> {
         let enhanced = inode.enhance(&mut self.inner)?;
 
         if !visit(path.as_str(), inode.number, &inode.stat, &enhanced)? {

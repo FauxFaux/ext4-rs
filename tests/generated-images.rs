@@ -8,6 +8,7 @@ use std::io::Read;
 
 #[test]
 fn all_types() {
+    let mut files_successfully_processed = 0u64;
     for file in path::Path::new("tests/generated").read_dir().unwrap() {
         let file = file.unwrap();
         let image_name = file.file_name().into_string().unwrap();
@@ -24,8 +25,9 @@ fn all_types() {
             let mut part_reader = ext4::mbr::read_partition(&mut img, &part).unwrap();
             let mut superblock = ext4::SuperBlock::new(&mut part_reader).unwrap();
             let root = superblock.root().unwrap();
-            superblock.walk(&root, image_name.to_string(), &|path, number, stat, enhanced| {
+            superblock.walk(&root, image_name.to_string(), &mut |path, number, stat, enhanced| {
                 println!("<{}> {}: {:?} {:?}", number, path, enhanced, stat);
+                files_successfully_processed += 1;
                 Ok(true)
             }).unwrap();
 
@@ -36,4 +38,6 @@ fn all_types() {
             println!("{}", s);
         }
     }
+
+    assert_eq!(100, files_successfully_processed);
 }
