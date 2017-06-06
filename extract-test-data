@@ -7,3 +7,5 @@ else
     echo usage: $0 --refresh
     exit 2
 fi
+
+rm -v tests/generated/*.img
