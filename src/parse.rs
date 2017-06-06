@@ -105,6 +105,7 @@ where R: io::Read + io::Seek {
         INCOMPAT_FILETYPE
             | INCOMPAT_EXTENTS
             | INCOMPAT_FLEX_BG
+            | INCOMPAT_RECOVER
             | INCOMPAT_64BIT;
 
     if incompatible_features.intersects(!supported_incompatible_features) {
