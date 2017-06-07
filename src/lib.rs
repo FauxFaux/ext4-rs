@@ -314,7 +314,7 @@ impl Inode {
         let data = {
             // if the flags, minus irrelevant flags, isn't just EXTENTS...
             ensure!(self.only_relevant_flag_is_extents(),
-                UnsupportedFeature(format!("inode without unsupported flags: {0:x} {0:b}", self.flags)));
+                UnsupportedFeature(format!("inode with unsupported flags: {0:x} {0:b}", self.flags)));
 
             self.load_all(inner)?
         };
