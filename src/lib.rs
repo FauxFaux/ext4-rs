@@ -225,10 +225,10 @@ where R: io::Read + io::Seek {
     /// The closure should return `true` if it wants walking to continue.
     /// The method returns `true` if the closure always returned true.
     pub fn walk<F>(&mut self, inode: &Inode, path: String, visit: &mut F) -> Result<bool>
-    where F: FnMut(&str, u32, &Stat, &Enhanced) -> io::Result<bool> {
+    where F: FnMut(&mut Self, &str, &Inode, &Enhanced) -> Result<bool> {
         let enhanced = inode.enhance(&mut self.inner)?;
 
-        if !visit(path.as_str(), inode.number, &inode.stat, &enhanced)
+        if !visit(self, path.as_str(), &inode, &enhanced)
                 .chain_err(|| "user closure failed")? {
             return Ok(false);
         }
