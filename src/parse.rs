@@ -477,8 +477,10 @@ where R: io::Read + io::Seek {
         });
 
         let alignment_failure = 4 - (e_name_len as usize % 4);
-        let mut realign = vec![0u8; alignment_failure];
-        inner.read_exact(&mut realign)?;
+        if alignment_failure < 4 {
+            let mut realign = vec![0u8; alignment_failure];
+            inner.read_exact(&mut realign)?;
+        }
     }
 
     let mut xattrs = HashMap::with_capacity(records.len());
