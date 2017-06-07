@@ -313,9 +313,8 @@ impl Inode {
 
         let data = {
             // if the flags, minus irrelevant flags, isn't just EXTENTS...
-            if !self.only_relevant_flag_is_extents() {
-                bail!(UnsupportedFeature(format!("inode without unsupported flags: {0:x} {0:b}", self.flags)));
-            }
+            ensure!(self.only_relevant_flag_is_extents(),
+                UnsupportedFeature(format!("inode without unsupported flags: {0:x} {0:b}", self.flags)));
 
             self.load_all(inner)?
         };
@@ -401,9 +400,8 @@ fn parse_error(msg: String) -> Error {
 #[allow(unknown_lints, absurd_extreme_comparisons)]
 fn usize_check(val: u64) -> Result<usize> {
     // this check only makes sense on non-64-bit platforms; on 64-bit usize == u64.
-    if val > std::usize::MAX as u64 {
-        bail!(AssumptionFailed(format!("value is too big for memory on this platform: {}", val)))
-    }
+    ensure!(val <= std::usize::MAX as u64,
+        AssumptionFailed(format!("value is too big for memory on this platform: {}", val)));
 
     Ok(val as usize)
 }

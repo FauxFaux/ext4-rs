@@ -342,9 +342,8 @@ where R: io::Read + io::Seek {
     }
 
     // extended attributes after the inode
-    if INODE_BASE_LEN + i_extra_isize as u32 + 4 < inode_size as u32 && XATTR_MAGIC == inner.read_u32::<LittleEndian>()? {
-        bail!(UnsupportedFeature("xattrs in inode".to_string()));
-    }
+    ensure!(INODE_BASE_LEN + i_extra_isize as u32 + 4 >= inode_size as u32 || XATTR_MAGIC != inner.read_u32::<LittleEndian>()?,
+        UnsupportedFeature("xattrs in inode".to_string()));
 
     let xattrs = if 0 != i_file_acl_lo || 0 != l_i_file_acl_high {
         let block = i_file_acl_lo as u32 | ((l_i_file_acl_high as u32) << 16);
