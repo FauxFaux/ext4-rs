@@ -1,5 +1,9 @@
 use std::io;
 
+use ::errors::*;
+use ::errors::Result;
+use ::errors::ErrorKind::*;
+
 use byteorder::{ReadBytesExt, LittleEndian};
 
 const EXT4_BLOCK_GROUP_INODES_UNUSED: u16 = 0b1;
@@ -26,7 +30,7 @@ impl BlockGroups {
         s_desc_size: u16,
         s_inodes_per_group: u32,
         block_size: u32,
-        inode_size: u16) -> io::Result<BlockGroups>
+        inode_size: u16) -> Result<BlockGroups>
     where R: io::Read + io::Seek {
         let blocks_count = ::usize_check(blocks_count)?;
 

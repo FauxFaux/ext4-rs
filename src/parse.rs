@@ -3,6 +3,9 @@ use std::io;
 use ::Time;
 
 use ::parse_error;
+use ::errors::*;
+use ::errors::Result;
+use ::errors::ErrorKind::*;
 
 use std::collections::HashMap;
 
@@ -33,7 +36,7 @@ bitflags! {
     }
 }
 
-pub fn superblock<R>(mut inner: R) -> io::Result<::SuperBlock<R>>
+pub fn superblock<R>(mut inner: R) -> Result<::SuperBlock<R>>
 where R: io::Read + io::Seek {
 
     // <a cut -c 9- | fgrep ' s_' | fgrep -v ERR_ | while read ty nam comment; do printf "let %s =\n  inner.read_%s::<LittleEndian>()?; %s\n" $(echo $nam | tr -d ';') $(echo $ty | sed 's/__le/u/; s/__//') $comment; done
@@ -247,7 +250,7 @@ where R: io::Read + io::Seek {
     })
 }
 
-pub fn inode<R>(mut inner: R, inode: u32, inode_size: u16, block_size: u32) -> io::Result<::Inode>
+pub fn inode<R>(mut inner: R, inode: u32, inode_size: u16, block_size: u32) -> Result<::Inode>
 where R: io::Read + io::Seek {
     let i_mode =
         inner.read_u16::<LittleEndian>()?; /* File mode */
@@ -395,7 +398,7 @@ struct XattrRecord {
     len: u32,
 }
 
-fn xattr_block<R>(inner: &mut R, block: u32, block_size: u32) -> io::Result<HashMap<String, Vec<u8>>>
+fn xattr_block<R>(inner: &mut R, block: u32, block_size: u32) -> Result<HashMap<String, Vec<u8>>>
 where R: io::Read + io::Seek {
     inner.seek(io::SeekFrom::Start(block as u64 * block_size as u64))?;
 

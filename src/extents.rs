@@ -4,6 +4,10 @@ use std::io;
 use ::as_u16;
 use ::as_u32;
 
+use ::errors::*;
+use ::errors::Result;
+use ::errors::ErrorKind::*;
+
 #[derive(Debug)]
 struct Extent {
     block: u32,
@@ -21,12 +25,12 @@ pub struct TreeReader<R> {
 
 impl<R> TreeReader<R>
 where R: io::Read + io::Seek {
-    pub fn new(mut inner: R, block_size: u32, block: [u8; 4 * 15]) -> io::Result<TreeReader<R>> {
+    pub fn new(mut inner: R, block_size: u32, block: [u8; 4 * 15]) -> Result<TreeReader<R>> {
         let extents = load_extent_tree(&mut inner, block, block_size)?;
         TreeReader::create(inner, block_size, extents)
     }
 
-    fn create(mut inner: R, block_size: u32, extents: Vec<Extent>) -> io::Result<TreeReader<R>> {
+    fn create(mut inner: R, block_size: u32, extents: Vec<Extent>) -> Result<TreeReader<R>> {
         assert_eq!(0, extents[0].block);
 
         inner.seek(io::SeekFrom::Start(extents[0].start as u64 * block_size as u64))?;
@@ -113,7 +117,7 @@ fn add_found_extents<R>(
     mut inner: &mut R,
     block: &[u8],
     expected_depth: u16,
-    extents: &mut Vec<Extent>) -> io::Result<()>
+    extents: &mut Vec<Extent>) -> Result<()>
     where R: io::Read + io::Seek {
 
     assert_eq!(0x0a, block[0]);
@@ -160,7 +164,7 @@ fn add_found_extents<R>(
     Ok(())
 }
 
-fn load_extent_tree<R>(mut inner: R, start: [u8; 4 * 15], block_size: u32) -> io::Result<Vec<Extent>>
+fn load_extent_tree<R>(mut inner: R, start: [u8; 4 * 15], block_size: u32) -> Result<Vec<Extent>>
     where R: io::Read + io::Seek {
     assert_eq!(0x0a, start[0]);
     assert_eq!(0xf3, start[1]);

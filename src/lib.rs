@@ -1,5 +1,6 @@
 #[macro_use] extern crate bitflags;
 extern crate byteorder;
+#[macro_use] extern crate error_chain;
 
 use std::io;
 
@@ -17,6 +18,31 @@ pub mod mbr;
 
 use extents::TreeReader;
 
+mod errors {
+    error_chain! {
+        errors {
+            AssumptionFailed(t: String) {
+                description("programming error")
+                display("assumption failed: {}", t)
+            }
+            UnsupportedFeature(t: String) {
+                description("filesystem uses an unsupported feature")
+                display("unsupported feature: {}", t)
+            }
+            NotFound(t: String) {
+                description("asked for something that we are sure does not exist")
+                display("not found: {}", t)
+            }
+        }
+
+        foreign_links {
+            Io(::std::io::Error);
+        }
+    }
+}
+
+use errors::*;
+use errors::ErrorKind::*;
 
 bitflags! {
     struct InodeFlags: u32 {
@@ -143,25 +169,27 @@ pub struct Time {
 impl<R> SuperBlock<R>
 where R: io::Read + io::Seek {
 
-    pub fn new(mut inner: R) -> io::Result<SuperBlock<R>> {
+    pub fn new(mut inner: R) -> Result<SuperBlock<R>> {
         inner.seek(io::SeekFrom::Start(1024))?;
         parse::superblock(inner)
     }
 
-    pub fn load_inode(&mut self, inode: u32) -> io::Result<Inode> {
-        self.inner.seek(io::SeekFrom::Start(self.groups.index_of(inode)))?;
+    pub fn load_inode(&mut self, inode: u32) -> Result<Inode> {
+        self.inner.seek(io::SeekFrom::Start(self.groups.index_of(inode)))
+            .chain_err(|| format!("seek to inode <{}>", inode))?;
         parse::inode(&mut self.inner, inode, self.groups.inode_size, self.groups.block_size)
     }
 
-    pub fn root(&mut self) -> io::Result<Inode> {
+    pub fn root(&mut self) -> Result<Inode> {
         self.load_inode(2)
     }
 
-    pub fn walk<F>(&mut self, inode: &Inode, path: String, visit: &mut F) -> io::Result<bool>
+    pub fn walk<F>(&mut self, inode: &Inode, path: String, visit: &mut F) -> Result<bool>
     where F: FnMut(&str, u32, &Stat, &Enhanced) -> io::Result<bool> {
         let enhanced = inode.enhance(&mut self.inner)?;
 
-        if !visit(path.as_str(), inode.number, &inode.stat, &enhanced)? {
+        if !visit(path.as_str(), inode.number, &inode.stat, &enhanced)
+                .chain_err(|| "while processing user closure")? {
             return Ok(false);
         }
 
@@ -184,7 +212,7 @@ where R: io::Read + io::Seek {
         Ok(true)
     }
 
-    pub fn resolve_path(&mut self, path: &str) -> io::Result<DirEntry> {
+    pub fn resolve_path(&mut self, path: &str) -> Result<DirEntry> {
         let path = path.trim_right_matches('/');
         if path.is_empty() {
             // this is a bit of a lie, but it works..?
@@ -211,32 +239,35 @@ where R: io::Read + io::Seek {
         self.dir_entry_named(&curr, last)
     }
 
-    fn dir_entry_named(&mut self, inode: &Inode, name: &str) -> io::Result<DirEntry> {
+    fn dir_entry_named(&mut self, inode: &Inode, name: &str) -> Result<DirEntry> {
         if let Enhanced::Directory(entries) = self.enhance(inode)? {
-            entries.into_iter().find(|entry| entry.name == name).ok_or_else(||
-                io::Error::new(io::ErrorKind::NotFound, format!("component {} isn't there", name)))
+            if let Some(en) = entries.into_iter().find(|entry| entry.name == name) {
+                Ok(en)
+            } else {
+                Err(NotFound(format!("component {} isn't there", name)).into())
+            }
         } else {
-            Err(io::Error::new(io::ErrorKind::NotFound, format!("component {} isn't a directory", name)))
+            Err(NotFound(format!("component {} isn't a directory", name)).into())
         }
     }
 
-    pub fn open(&mut self, inode: &Inode) -> io::Result<TreeReader<&mut R>> {
+    pub fn open(&mut self, inode: &Inode) -> Result<TreeReader<&mut R>> {
         inode.reader(&mut self.inner)
     }
 
-    pub fn enhance(&mut self, inode: &Inode) -> io::Result<Enhanced> {
+    pub fn enhance(&mut self, inode: &Inode) -> Result<Enhanced> {
         inode.enhance(&mut self.inner)
     }
 }
 
 impl Inode {
 
-    fn reader<R>(&self, inner: R) -> io::Result<TreeReader<R>>
+    fn reader<R>(&self, inner: R) -> Result<TreeReader<R>>
     where R: io::Read + io::Seek {
         TreeReader::new(inner, self.block_size, self.block)
     }
 
-    fn enhance<R>(&self, inner: R) -> io::Result<Enhanced>
+    fn enhance<R>(&self, inner: R) -> Result<Enhanced>
     where R: io::Read + io::Seek {
         Ok(match self.stat.extracted_type {
             FileType::RegularFile => Enhanced::RegularFile,
@@ -263,7 +294,7 @@ impl Inode {
         })
     }
 
-    fn load_all<R>(&self, inner: R) -> io::Result<Vec<u8>>
+    fn load_all<R>(&self, inner: R) -> Result<Vec<u8>>
     where R: io::Read + io::Seek {
         let size = usize_check(self.stat.size)?;
         let mut ret = vec![0u8; size];
@@ -273,7 +304,7 @@ impl Inode {
         Ok(ret)
     }
 
-    fn read_directory<R>(&self, inner: R) -> io::Result<Vec<DirEntry>>
+    fn read_directory<R>(&self, inner: R) -> Result<Vec<DirEntry>>
     where R: io::Read + io::Seek {
 
         let mut dirs = Vec::with_capacity(40);
@@ -281,7 +312,7 @@ impl Inode {
         let data = {
             // if the flags, minus irrelevant flags, isn't just EXTENTS...
             if !self.only_relevant_flag_is_extents() {
-                return Err(parse_error(format!("inode without unsupported flags: {0:x} {0:b}", self.flags)));
+                bail!(UnsupportedFeature(format!("inode without unsupported flags: {0:x} {0:b}", self.flags)));
             }
 
             self.load_all(inner)?
@@ -360,18 +391,16 @@ fn as_u32(buf: &[u8]) -> u32 {
     as_u16(buf) as u32 + as_u16(&buf[2..]) as u32 * 0x10000
 }
 
-fn parse_error(msg: String) -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidInput, msg)
+fn parse_error(msg: String) -> Error {
+    AssumptionFailed(msg).into()
 }
 
 #[allow(unknown_lints, absurd_extreme_comparisons)]
-fn usize_check(val: u64) -> io::Result<usize> {
+fn usize_check(val: u64) -> Result<usize> {
     // this check only makes sense on non-64-bit platforms; on 64-bit usize == u64.
     if val > std::usize::MAX as u64 {
-        Err(io::Error::new(io::ErrorKind::InvalidData,
-                                  format!("value is too big for memory on this platform: {}",
-                                          val)))
-    } else {
-        Ok(val as usize)
+        bail!(AssumptionFailed(format!("value is too big for memory on this platform: {}", val)))
     }
+
+    Ok(val as usize)
 }
