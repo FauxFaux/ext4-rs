@@ -5,11 +5,16 @@ and files from them.
 # Example
 
 ```rust,no_run
-let mut superblock = SuperBlock::new(&mut part_reader).unwrap();
+let mut block_device = std::io::BufReader::new(std::fs::File::open("/dev/sda1").unwrap());
+let mut superblock = ext4::SuperBlock::new(&mut block_device).unwrap();
 let target_inode_number = superblock.resolve_path("/etc/passwd").unwrap().inode;
 let inode = superblock.load_inode(target_inode_number).unwrap();
-let passwd_reader = superblock.open(&nice_node).unwrap();
+let passwd_reader = superblock.open(&inode).unwrap();
 ```
+
+Note: normal users can't read /dev/sda by default, as it would allow them to read any
+file on the filesystem. You can grant yourself temporary access with
+`sudo setfacl -m u:${USER}:r /dev/sda1`, if you so fancy. This will be lost at reboot.
 */
 
 #[macro_use] extern crate bitflags;
