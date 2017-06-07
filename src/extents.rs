@@ -30,6 +30,9 @@ where R: io::Read + io::Seek {
     }
 
     fn create(mut inner: R, block_size: u32, extents: Vec<Extent>) -> Result<TreeReader<R>> {
+        ensure!(0 != extents.len(),
+            AssumptionFailed("there must be extents".to_string()));
+
         ensure!(0 == extents[0].block,
             UnsupportedFeature(format!("can't be sparse at the start: 0 != {}", extents[0].block)));
 
@@ -120,7 +123,7 @@ fn add_found_extents<R>(
     block: &[u8],
     expected_depth: u16,
     extents: &mut Vec<Extent>) -> Result<()>
-    where R: io::Read + io::Seek {
+where R: io::Read + io::Seek {
 
     ensure!(0x0a == block[0] && 0xf3 == block[1],
         AssumptionFailed("invalid extent magic".to_string()));
@@ -129,6 +132,9 @@ fn add_found_extents<R>(
     // 4..: max; doesn't seem to be useful during read
     let depth = as_u16(&block[6..]);
     // 8..: generation, not used in standard ext4
+
+    ensure!(extent_entries != 0,
+        AssumptionFailed(format!("table had no entries")));
 
     ensure!(expected_depth == depth,
         AssumptionFailed(format!("depth incorrect: {} != {}", expected_depth, depth)));

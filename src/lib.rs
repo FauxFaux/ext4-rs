@@ -242,7 +242,7 @@ where R: io::Read + io::Seek {
                 let child_node = self.load_inode(entry.inode)
                     .chain_err(|| format!("loading {} ({:?})", entry.name, entry.file_type))?;
                 if !self.walk(&child_node, format!("{}/{}", path, entry.name), visit)
-                        .chain_err(|| format!("processing '{}/'", entry.name))? {
+                        .chain_err(|| format!("processing '{}'", entry.name))? {
                     return Ok(false)
                 }
             }
@@ -311,6 +311,7 @@ impl Inode {
     fn reader<R>(&self, inner: R) -> Result<TreeReader<R>>
     where R: io::Read + io::Seek {
         TreeReader::new(inner, self.block_size, self.block)
+            .chain_err(|| format!("opening inode <{}>", self.number))
     }
 
     fn enhance<R>(&self, inner: R) -> Result<Enhanced>
