@@ -239,8 +239,10 @@ where R: io::Read + io::Seek {
                     continue;
                 }
 
-                let child_node = self.load_inode(entry.inode)?;
-                if !self.walk(&child_node, format!("{}/{}", path, entry.name), visit)? {
+                let child_node = self.load_inode(entry.inode)
+                    .chain_err(|| format!("loading {} ({:?})", entry.name, entry.file_type))?;
+                if !self.walk(&child_node, format!("{}/{}", path, entry.name), visit)
+                        .chain_err(|| format!("processing '{}/'", entry.name))? {
                     return Ok(false)
                 }
             }
