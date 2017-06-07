@@ -4,7 +4,7 @@ and files from them.
 
 # Example
 
-```rust
+```rust,no_run
 let mut superblock = SuperBlock::new(&mut part_reader).unwrap();
 let target_inode_number = superblock.resolve_path("/etc/passwd").unwrap().inode;
 let inode = superblock.load_inode(target_inode_number).unwrap();
