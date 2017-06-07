@@ -1,3 +1,8 @@
+/*!
+
+Support for reading MBR (not GPT) partition tables, and getting an `io::Read` for a partition.
+*/
+
 use std;
 
 use std::io::Error;
@@ -9,6 +14,7 @@ use std::io::SeekFrom;
 
 use ::as_u32;
 
+/// An entry in the partition table.
 #[derive(Debug)]
 pub struct Partition {
     pub id: usize,
@@ -18,6 +24,7 @@ pub struct Partition {
     pub len: u64,
 }
 
+/// Produced by `read_partition`.
 pub struct RangeReader<R> {
     inner: R,
     first_byte: u64,
@@ -75,6 +82,8 @@ impl<R: Seek> Seek for RangeReader<R> {
     }
 }
 
+/// Read a DOS/MBR partition table from a reader positioned at the appropriate sector.
+/// The sector size for the disc is assumed to be 512 bytes.
 pub fn read_partition_table<R: Read>(mut reader: R) -> Result<Vec<Partition>> {
     let mut sector = [0u8; 512];
     reader.read_exact(&mut sector)?;
@@ -82,6 +91,7 @@ pub fn read_partition_table<R: Read>(mut reader: R) -> Result<Vec<Partition>> {
     parse_partition_table(&sector, 512)
 }
 
+/// Read a DOS/MBR partition table from a 512-byte boot sector, providing a disc sector size.
 pub fn parse_partition_table(sector: &[u8], sector_size: u16) -> Result<Vec<Partition>> {
     let mut partitions = Vec::with_capacity(4);
 
@@ -120,6 +130,7 @@ pub fn parse_partition_table(sector: &[u8], sector_size: u16) -> Result<Vec<Part
     Ok(partitions)
 }
 
+/// Open the contents of a partition for reading.
 pub fn read_partition<R>(inner: R, part: &Partition) -> Result<RangeReader<R>>
 where R: Read + Seek
 {

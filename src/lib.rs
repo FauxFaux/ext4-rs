@@ -1,3 +1,17 @@
+/*!
+This crate can load ext4 filesystems, letting you read metadata
+and files from them.
+
+# Example
+
+```rust
+let mut superblock = SuperBlock::new(&mut part_reader).unwrap();
+let target_inode_number = superblock.resolve_path("/etc/passwd").unwrap().inode;
+let inode = superblock.load_inode(target_inode_number).unwrap();
+let passwd_reader = superblock.open(&nice_node).unwrap();
+```
+*/
+
 #[macro_use] extern crate bitflags;
 extern crate byteorder;
 #[macro_use] extern crate error_chain;
@@ -21,14 +35,18 @@ use extents::TreeReader;
 mod errors {
     error_chain! {
         errors {
+            /// The filesystem doesn't meet the code's expectations;
+            /// maybe the code is wrong, maybe the filesystem is corrupt.
             AssumptionFailed(t: String) {
                 description("programming error")
                 display("assumption failed: {}", t)
             }
+            // The filesystem is valid, but requests a feature the code doesn't support.
             UnsupportedFeature(t: String) {
                 description("filesystem uses an unsupported feature")
                 display("unsupported feature: {}", t)
             }
+            // The request is for something which we are sure is not there.
             NotFound(t: String) {
                 description("asked for something that we are sure does not exist")
                 display("not found: {}", t)
@@ -74,6 +92,7 @@ bitflags! {
     }
 }
 
+/// Flag indicating the type of file stored in this inode.
 #[derive(Debug, PartialEq)]
 pub enum FileType {
     RegularFile,     // S_IFREG (Regular file)
@@ -85,12 +104,17 @@ pub enum FileType {
     Socket,          // S_IFSOCK (Socket)
 }
 
+/// Extended, type-specific information read from an inode.
 #[derive(Debug)]
 pub enum Enhanced {
     RegularFile,
+    /// A symlink, with its decoded destination.
     SymbolicLink(String),
+    /// A 'c' device, with its major and minor numbers.
     CharacterDevice(u16, u32),
+    /// A 'b' device, with its major and minor numbers.
     BlockDevice(u16, u32),
+    /// A directory, with its listing.
     Directory(Vec<DirEntry>),
     Fifo,
     Socket,
@@ -124,6 +148,7 @@ impl FileType {
     }
 }
 
+/// An entry in a directory, without its extra metadata.
 #[derive(Debug)]
 pub struct DirEntry {
     pub inode: u32,
@@ -131,6 +156,7 @@ pub struct DirEntry {
     pub name: String,
 }
 
+/// Full information about a disc entry.
 #[derive(Debug)]
 pub struct Stat {
     pub extracted_type: FileType,
@@ -146,6 +172,7 @@ pub struct Stat {
     pub xattrs: HashMap<String, Vec<u8>>,
 }
 
+/// An actual disc metadata entry.
 pub struct Inode {
     pub stat: Stat,
     pub number: u32,
@@ -154,12 +181,14 @@ pub struct Inode {
     block_size: u32,
 }
 
+/// The critical core of the filesystem.
 #[derive(Debug)]
 pub struct SuperBlock<R> {
     inner: R,
     groups: block_groups::BlockGroups,
 }
 
+/// A raw filesystem time.
 #[derive(Debug)]
 pub struct Time {
     pub epoch_secs: u32,
@@ -169,21 +198,27 @@ pub struct Time {
 impl<R> SuperBlock<R>
 where R: io::Read + io::Seek {
 
+    /// Open a filesystem, and load its superblock.
     pub fn new(mut inner: R) -> Result<SuperBlock<R>> {
         inner.seek(io::SeekFrom::Start(1024))?;
         parse::superblock(inner).chain_err(|| "failed to parse superblock")
     }
 
+    /// Load a filesystem entry by inode number.
     pub fn load_inode(&mut self, inode: u32) -> Result<Inode> {
         self.inner.seek(io::SeekFrom::Start(self.groups.index_of(inode)?))?;
         parse::inode(&mut self.inner, inode, self.groups.inode_size, self.groups.block_size)
             .chain_err(|| format!("failed to parse inode <{}>", inode))
     }
 
+    /// Load the root node of the filesystem (typically `/`).
     pub fn root(&mut self) -> Result<Inode> {
         self.load_inode(2).chain_err(|| "failed to load root inode")
     }
 
+    /// Visit every entry in the filesystem in an arbitrary order.
+    /// The closure should return `true` if it wants walking to continue.
+    /// The method returns `true` if the closure always returned true.
     pub fn walk<F>(&mut self, inode: &Inode, path: String, visit: &mut F) -> Result<bool>
     where F: FnMut(&str, u32, &Stat, &Enhanced) -> io::Result<bool> {
         let enhanced = inode.enhance(&mut self.inner)?;
@@ -212,6 +247,8 @@ where R: io::Read + io::Seek {
         Ok(true)
     }
 
+    /// Parse a path, and find the directory entry it represents.
+    /// Note that "/foo/../bar" will be treated literally, not resolved to "/bar" then looked up.
     pub fn resolve_path(&mut self, path: &str) -> Result<DirEntry> {
         let path = path.trim_right_matches('/');
         if path.is_empty() {
@@ -251,10 +288,12 @@ where R: io::Read + io::Seek {
         }
     }
 
+    /// Read the data from an inode. You might not want to call this on thigns that aren't regular files.
     pub fn open(&mut self, inode: &Inode) -> Result<TreeReader<&mut R>> {
         inode.reader(&mut self.inner)
     }
 
+    /// Load extra metadata about some types of entries.
     pub fn enhance(&mut self, inode: &Inode) -> Result<Enhanced> {
         inode.enhance(&mut self.inner)
     }
