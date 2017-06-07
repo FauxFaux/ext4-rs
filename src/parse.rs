@@ -216,12 +216,12 @@ where R: io::Read + io::Seek {
     };
 
     if !long_structs {
-        assert_eq!(0, s_desc_size);
+        ensure!(0 == s_desc_size,
+            AssumptionFailed(format!("outside long mode, block group desc size must be zero, not {}", s_desc_size)));
     }
 
-    if 1 != s_rev_level {
-        return Err(parse_error(format!("unsupported rev_level {}", s_rev_level)));
-    }
+    ensure!(1 == s_rev_level,
+        UnsupportedFeature(format!("rev level {}", s_rev_level)));
 
     let group_table_pos = if 1024 == block_size {
         // for 1k blocks, the table is in the third block, after:
@@ -343,12 +343,11 @@ where R: io::Read + io::Seek {
 
     // extended attributes after the inode
     if INODE_BASE_LEN + i_extra_isize as u32 + 4 < inode_size as u32 && XATTR_MAGIC == inner.read_u32::<LittleEndian>()? {
-        panic!("don't want attributes here");
+        bail!(UnsupportedFeature("xattrs in inode".to_string()));
     }
 
     let xattrs = if 0 != i_file_acl_lo || 0 != l_i_file_acl_high {
         let block = i_file_acl_lo as u32 | ((l_i_file_acl_high as u32) << 16);
-        println!("acl lo: {:x} acl high: {:x}", i_file_acl_lo, l_i_file_acl_high);
         xattr_block(&mut inner, block, block_size)?
     } else {
         HashMap::new()
@@ -356,7 +355,7 @@ where R: io::Read + io::Seek {
 
     let stat = ::Stat {
         extracted_type: ::FileType::from_mode(i_mode)
-            .ok_or_else(|| parse_error(format!("unexpected file type in mode: {:b}", i_mode)))?,
+            .ok_or_else(|| UnsupportedFeature(format!("unexpected file type in mode: {:b}", i_mode)))?,
         file_mode: i_mode & 0b111_111_111_111,
         uid: i_uid as u32 | ((l_i_uid_high as u32) << 16),
         gid: i_gid as u32 | ((l_i_gid_high as u32) << 16),
@@ -402,7 +401,8 @@ fn xattr_block<R>(inner: &mut R, block: u32, block_size: u32) -> Result<HashMap<
 where R: io::Read + io::Seek {
     inner.seek(io::SeekFrom::Start(block as u64 * block_size as u64))?;
 
-    assert_eq!(XATTR_MAGIC, inner.read_u32::<LittleEndian>()?);
+    ensure!(XATTR_MAGIC == inner.read_u32::<LittleEndian>()?,
+        AssumptionFailed("xattr block contained invalid magic number".to_string()));
 
 //  let x_refcount =
         inner.read_u32::<LittleEndian>()?;
@@ -458,10 +458,9 @@ where R: io::Read + io::Seek {
                 4 => "trusted.",
                 6 => "security.",
                 7 => "system.",
-                _ => panic!("unsupported name prefix encoding: {}", e_name_prefix_magic),
+                _ => bail!(UnsupportedFeature(format!("unsupported name prefix encoding: {}", e_name_prefix_magic))),
             },
-            String::from_utf8(name_suffix).map_err(|e|
-                    io::Error::new(io::ErrorKind::InvalidData, format!("name is invalid utf-8: {}", e)))?
+            String::from_utf8(name_suffix).chain_err(|| "name is invalid utf-8")?
         );
 
         let disk_offset = if 0 == e_block {

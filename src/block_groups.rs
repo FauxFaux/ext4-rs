@@ -1,6 +1,5 @@
 use std::io;
 
-use ::errors::*;
 use ::errors::Result;
 use ::errors::ErrorKind::*;
 
@@ -133,18 +132,20 @@ impl BlockGroups {
         })
     }
 
-    pub fn index_of(&self, inode: u32) -> u64 {
-        assert_ne!(0, inode);
+    pub fn index_of(&self, inode: u32) -> Result<u64> {
+        ensure!(0 != inode,
+            NotFound("there is no inode zero".to_string()));
 
         let inode = inode - 1;
         let group_number = inode / self.inodes_per_group;
         let group = &self.groups[group_number as usize];
         let inode_index_in_group = inode % self.inodes_per_group;
-        assert!(inode_index_in_group < group.max_inode_number,
+        ensure!(inode_index_in_group < group.max_inode_number,
+                AssumptionFailed(format!(
                 "inode <{}> number must fit in group: {} is greater than {} for group {}",
                 inode + 1,
-                inode_index_in_group, group.max_inode_number, group_number);
+                inode_index_in_group, group.max_inode_number, group_number)));
         let block = group.inode_table_block;
-        block * self.block_size as u64 + inode_index_in_group as u64 * self.inode_size as u64
+        Ok(block * self.block_size as u64 + inode_index_in_group as u64 * self.inode_size as u64)
     }
 }

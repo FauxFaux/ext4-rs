@@ -175,7 +175,7 @@ where R: io::Read + io::Seek {
     }
 
     pub fn load_inode(&mut self, inode: u32) -> Result<Inode> {
-        self.inner.seek(io::SeekFrom::Start(self.groups.index_of(inode)))?;
+        self.inner.seek(io::SeekFrom::Start(self.groups.index_of(inode)?))?;
         parse::inode(&mut self.inner, inode, self.groups.inode_size, self.groups.block_size)
             .chain_err(|| format!("failed to parse inode <{}>", inode))
     }
@@ -277,10 +277,12 @@ impl Inode {
             FileType::Directory => Enhanced::Directory(self.read_directory(inner)?),
             FileType::SymbolicLink =>
                 Enhanced::SymbolicLink(if self.stat.size < 60 {
-                    assert!(self.flags.is_empty());
+                    ensure!(self.flags.is_empty(),
+                        UnsupportedFeature(format!("symbolic links may not have flags: {:?}", self.flags)));
                     std::str::from_utf8(&self.block[0..self.stat.size as usize]).expect("utf-8").to_string()
                 } else {
-                    assert!(self.only_relevant_flag_is_extents());
+                    ensure!(self.only_relevant_flag_is_extents(),
+                        UnsupportedFeature(format!("symbolic links may not have non-extent flags: {:?}", self.flags)));
                     std::str::from_utf8(&self.load_all(inner)?).expect("utf-8").to_string()
                 }),
             FileType::CharacterDevice => {
@@ -344,7 +346,8 @@ impl Inode {
 
             read += rec_len as usize;
             if read >= total_len {
-                assert_eq!(read, total_len);
+                ensure!(read == total_len,
+                    AssumptionFailed(format!("short read, {} != {}", read, total_len)));
                 break;
             }
         }

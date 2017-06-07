@@ -4,7 +4,6 @@ use std::io;
 use ::as_u16;
 use ::as_u32;
 
-use ::errors::*;
 use ::errors::Result;
 use ::errors::ErrorKind::*;
 
@@ -31,7 +30,8 @@ where R: io::Read + io::Seek {
     }
 
     fn create(mut inner: R, block_size: u32, extents: Vec<Extent>) -> Result<TreeReader<R>> {
-        assert_eq!(0, extents[0].block);
+        ensure!(0 == extents[0].block,
+            UnsupportedFeature(format!("can't be sparse at the start: 0 != {}", extents[0].block)));
 
         inner.seek(io::SeekFrom::Start(extents[0].start as u64 * block_size as u64))?;
 
@@ -80,7 +80,9 @@ impl<R> io::Read for TreeReader<R>
             let to_read = std::cmp::min(buf.len() as u64, bytes_until_end) as usize;
 
             read = self.inner.read(&mut buf[0..to_read])?;
-            assert_ne!(0, read);
+            if 0 == read {
+                return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "short read"));
+            }
 
             // if, while reading, we didn't reach the end of this extent, everything is okay
             if (read as u64) != bytes_until_end {
@@ -120,15 +122,16 @@ fn add_found_extents<R>(
     extents: &mut Vec<Extent>) -> Result<()>
     where R: io::Read + io::Seek {
 
-    assert_eq!(0x0a, block[0]);
-    assert_eq!(0xf3, block[1]);
+    ensure!(0x0a == block[0] && 0xf3 == block[1],
+        AssumptionFailed("invalid extent magic".to_string()));
 
     let extent_entries = as_u16(&block[2..]);
     // 4..: max; doesn't seem to be useful during read
     let depth = as_u16(&block[6..]);
     // 8..: generation, not used in standard ext4
 
-    assert_eq!(expected_depth, depth);
+    ensure!(expected_depth == depth,
+        AssumptionFailed(format!("depth incorrect: {} != {}", expected_depth, depth)));
 
     if 0 == depth {
         for en in 0..extent_entries {
@@ -166,14 +169,15 @@ fn add_found_extents<R>(
 
 fn load_extent_tree<R>(mut inner: R, start: [u8; 4 * 15], block_size: u32) -> Result<Vec<Extent>>
     where R: io::Read + io::Seek {
-    assert_eq!(0x0a, start[0]);
-    assert_eq!(0xf3, start[1]);
+    ensure!(0x0a == start[0] && 0xf3 == start[1],
+        AssumptionFailed("invalid extent magic".to_string()));
 
     let extent_entries = as_u16(&start[2..]);
     // 4..: max; doesn't seem to be useful during read
     let depth = as_u16(&start[6..]);
 
-    assert!(depth <= 5);
+    ensure!(depth <= 5,
+        AssumptionFailed(format!("initial depth too high: {}", depth)));
 
     let mut extents = Vec::with_capacity(extent_entries as usize + depth as usize * 200);
 
