@@ -72,6 +72,10 @@ where R: io::Read + io::Seek {
         inner.read_u16::<LittleEndian>()?; /* Maximal mount count */
     let s_magic =
         inner.read_u16::<LittleEndian>()?; /* Magic signature */
+
+    ensure!(EXT4_SUPER_MAGIC == s_magic,
+        NotFound(format!("invalid magic number: {:x}", s_magic)));
+
     let s_state =
         inner.read_u16::<LittleEndian>()?; /* File system state */
 //    let s_errors =
@@ -84,6 +88,10 @@ where R: io::Read + io::Seek {
         inner.read_u32::<LittleEndian>()?; /* max. time between checks */
     let s_creator_os =
         inner.read_u32::<LittleEndian>()?; /* OS */
+
+    ensure!(0 == s_creator_os,
+        UnsupportedFeature(format!("only support filesystems created on linux, not '{}'", s_creator_os)));
+
     let s_rev_level =
         inner.read_u32::<LittleEndian>()?; /* Revision level */
 //    let s_def_resuid =
@@ -102,7 +110,7 @@ where R: io::Read + io::Seek {
         inner.read_u32::<LittleEndian>()?; /* incompatible feature set */
 
     let incompatible_features = IncompatibleFeature::from_bits(s_feature_incompat)
-        .ok_or_else(|| parse_error(format!("completely unsupported feature flag: {:b}", s_feature_incompat)))?;
+        .ok_or_else(|| parse_error(format!("completely unsupported incompatible feature flag: {:b}", s_feature_incompat)))?;
 
     let supported_incompatible_features =
         INCOMPAT_FILETYPE
@@ -183,14 +191,6 @@ where R: io::Read + io::Seek {
 //        if !long_structs { None } else {
 //            Some(inner.read_u32::<LittleEndian>()?) /* Miscellaneous flags */
 //        };
-
-    if EXT4_SUPER_MAGIC != s_magic {
-        return Err(parse_error(format!("invalid magic number: {:x} should be {:x}", s_magic, EXT4_SUPER_MAGIC)));
-    }
-
-    if 0 != s_creator_os {
-        return Err(parse_error(format!("only support filesystems created on linux, not '{}'", s_creator_os)));
-    }
 
     {
         const S_STATE_UNMOUNTED_CLEANLY: u16 = 0b01;

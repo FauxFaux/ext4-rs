@@ -6,3 +6,4 @@ authors = ["Chris West (Faux) <git@goeswhere.com>"]
 [dependencies]
 ext4 = { path = ".." }
 clap = "2.23.3"
+error-chain = "0.10.0"

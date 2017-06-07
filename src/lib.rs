@@ -41,7 +41,7 @@ mod errors {
     }
 }
 
-use errors::*;
+pub use errors::*;
 use errors::ErrorKind::*;
 
 bitflags! {
@@ -171,17 +171,17 @@ where R: io::Read + io::Seek {
 
     pub fn new(mut inner: R) -> Result<SuperBlock<R>> {
         inner.seek(io::SeekFrom::Start(1024))?;
-        parse::superblock(inner)
+        parse::superblock(inner).chain_err(|| "failed to parse superblock")
     }
 
     pub fn load_inode(&mut self, inode: u32) -> Result<Inode> {
-        self.inner.seek(io::SeekFrom::Start(self.groups.index_of(inode)))
-            .chain_err(|| format!("seek to inode <{}>", inode))?;
+        self.inner.seek(io::SeekFrom::Start(self.groups.index_of(inode)))?;
         parse::inode(&mut self.inner, inode, self.groups.inode_size, self.groups.block_size)
+            .chain_err(|| format!("failed to parse inode <{}>", inode))
     }
 
     pub fn root(&mut self) -> Result<Inode> {
-        self.load_inode(2)
+        self.load_inode(2).chain_err(|| "failed to load root inode")
     }
 
     pub fn walk<F>(&mut self, inode: &Inode, path: String, visit: &mut F) -> Result<bool>
@@ -189,7 +189,7 @@ where R: io::Read + io::Seek {
         let enhanced = inode.enhance(&mut self.inner)?;
 
         if !visit(path.as_str(), inode.number, &inode.stat, &enhanced)
-                .chain_err(|| "while processing user closure")? {
+                .chain_err(|| "user closure failed")? {
             return Ok(false);
         }
 
