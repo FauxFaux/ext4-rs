@@ -65,13 +65,18 @@ where R: Read + Seek {
     Ok(())
 }
 
+fn on_fs<F>(file: &str, matches: &clap::ArgMatches, work: F) -> Result<()>
+where F: Fn(&clap::ArgMatches, SuperBlock<&mut std::io::BufReader<std::fs::File>>) -> Result<()> {
+    let mut reader = io::BufReader::new(fs::File::open(file)?);
+    let superblock = ext4::SuperBlock::new(&mut reader)?;
+    work(matches, superblock)
+}
+
 
 fn for_each_input<F>(matches: &clap::ArgMatches, work: F) -> Result<()>
 where F: Fn(&clap::ArgMatches, SuperBlock<&mut std::io::BufReader<std::fs::File>>) -> Result<()> {
     let file = matches.value_of("file").unwrap();
-    let mut reader = io::BufReader::new(fs::File::open(file)?);
-    let superblock = ext4::SuperBlock::new(&mut reader)?;
-    work(matches, superblock).chain_err(|| format!("while processing '{}'", file))
+    on_fs(file, matches, work).chain_err(|| format!("while processing '{}'", file))
 }
 
 fn run() -> Result<()> {
