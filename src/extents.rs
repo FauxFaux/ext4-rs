@@ -38,6 +38,10 @@ where R: io::Read + io::Seek {
             block_size,
         })
     }
+
+    pub fn into_inner(self) -> R {
+        self.inner
+    }
 }
 
 enum FoundBlock<'a> {
@@ -97,6 +101,25 @@ impl<R> io::Read for TreeReader<R>
         }
     }
 }
+
+impl<R> io::Seek for TreeReader<R>
+where R: io::Read + io::Seek {
+    fn seek(&mut self, pos: io::SeekFrom) -> io::Result<u64> {
+        match pos {
+            io::SeekFrom::Start(set) => { self.pos = set }
+            io::SeekFrom::Current(diff) => { self.pos = (self.pos as i64 + diff) as u64 }
+            io::SeekFrom::End(set) => {
+                assert!(set >= 0);
+                self.pos = self.len - set as u64
+            }
+        }
+
+        assert!(self.pos <= self.len);
+
+        Ok(self.pos)
+    }
+}
+
 
 fn add_found_extents<R>(
     block_size: u32,
