@@ -28,8 +28,11 @@ fn all_types() {
             superblock.walk(&root, image_name.to_string(), &mut |fs, path, inode, enhanced| {
                 println!("<{}> {}: {:?} {:?}", inode.number, path, enhanced, inode.stat);
                 if ext4::FileType::RegularFile == inode.stat.extracted_type {
-                    let mut buf = [0u8; 10];
-                    println!("read {}", fs.open(inode)?.read(&mut buf)?);
+                    assert!(inode.stat.size <= std::usize::MAX as u64);
+                    let expected_size = inode.stat.size as usize;
+                    let mut buf = Vec::with_capacity(expected_size);
+                    fs.open(inode)?.read_to_end(&mut buf)?;
+                    assert_eq!(expected_size, buf.len());
                 }
 
                 files_successfully_processed += 1;

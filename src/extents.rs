@@ -17,9 +17,9 @@ struct Extent {
 pub struct TreeReader<R> {
     inner: R,
     pos: u64,
+    len: u64,
     block_size: u32,
     extents: Vec<Extent>,
-    sparse_bytes: Option<u64>,
 }
 
 impl<R> TreeReader<R>
@@ -29,30 +29,36 @@ where R: io::Read + io::Seek {
         TreeReader::create(inner, block_size, size, extents)
     }
 
-    fn create(mut inner: R, block_size: u32, size: u64, extents: Vec<Extent>) -> Result<TreeReader<R>> {
-        if extents.is_empty() {
-            return Ok(TreeReader {
-                pos: 0,
-                inner,
-                extents,
-                block_size,
-                sparse_bytes: Some(size)
-            });
-        }
-
-        ensure!(0 == extents[0].block,
-            UnsupportedFeature(format!("can't be sparse at the start: 0 != {}", extents[0].block)));
-
-        inner.seek(io::SeekFrom::Start(extents[0].start as u64 * block_size as u64))?;
-
+    fn create(inner: R, block_size: u32, size: u64, extents: Vec<Extent>) -> Result<TreeReader<R>> {
         Ok(TreeReader {
             pos: 0,
+            len: size,
             inner,
             extents,
             block_size,
-            sparse_bytes: None,
         })
     }
+}
+
+enum FoundBlock<'a> {
+    Actual(&'a Extent),
+    Sparse(u32),
+}
+
+fn find_block(block: u32, extents: &[Extent]) -> FoundBlock {
+    for extent in extents {
+        if block < extent.block {
+            // we've gone past it
+            return FoundBlock::Sparse(extent.block - block);
+        }
+
+        if block >= extent.block && block < extent.block + extent.len as u32 {
+            // we're inside it
+            return FoundBlock::Actual(extent);
+        }
+    }
+
+    return FoundBlock::Sparse(std::u32::MAX);
 }
 
 impl<R> io::Read for TreeReader<R>
@@ -64,67 +70,31 @@ impl<R> io::Read for TreeReader<R>
             return Ok(0);
         }
 
-        // we're feeding them some sparse bytes, keep doing so, and mark as done if we're done
-        if let Some(remaining_sparse) = self.sparse_bytes {
-            return if (buf.len() as u64) < remaining_sparse {
-                self.sparse_bytes = Some(remaining_sparse - buf.len() as u64);
-                zero(buf);
-                Ok(buf.len())
-            } else {
-                self.sparse_bytes = None;
-                zero(&mut buf[0..remaining_sparse as usize]);
-                Ok(remaining_sparse as usize)
-            };
-        }
+        let block_size = self.block_size as u64;
 
-        if self.extents.is_empty() {
-            return Ok(0);
-        }
+        let wanted_block = (self.pos / block_size) as u32;
+        let read_of_this_block = self.pos % block_size;
 
-        // we must be feeding them a real extent; keep doing so
-        let read;
-        {
-            // first self.extents is the block we're reading from
-            // we've read self.pos from it already
-            let reading_extent = &self.extents[0];
-            let this_extent_len_bytes = reading_extent.len as u64 * self.block_size as u64;
-
-            let bytes_until_end = this_extent_len_bytes - self.pos;
-
-            let to_read = std::cmp::min(buf.len() as u64, bytes_until_end) as usize;
-
-            read = self.inner.read(&mut buf[0..to_read])?;
-            if 0 == read {
-                return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "short read"));
+        match find_block(wanted_block, &self.extents) {
+            FoundBlock::Actual(extent) => {
+                let bytes_through_extent = (block_size * (wanted_block - extent.block) as u64) + read_of_this_block;
+                let remaining_bytes_in_extent = (extent.len as u64 * block_size) - bytes_through_extent;
+                let to_read = std::cmp::min(remaining_bytes_in_extent, buf.len() as u64) as usize;
+                let to_read = std::cmp::min(to_read as u64, self.len - self.pos) as usize;
+                self.inner.seek(io::SeekFrom::Start(extent.start as u64 * block_size + bytes_through_extent))?;
+                let read = self.inner.read(&mut buf[0..to_read])?;
+                self.pos += read as u64;
+                return Ok(read);
             }
-
-            // if, while reading, we didn't reach the end of this extent, everything is okay
-            if (read as u64) != bytes_until_end {
+            FoundBlock::Sparse(max) => {
+                let max_bytes = max as u64 * block_size;
+                let read = std::cmp::min(max_bytes, buf.len() as u64) as usize;
+                let read = std::cmp::min(read as u64, self.len - self.pos) as usize;
+                zero(&mut buf[0..read]);
                 self.pos += read as u64;
                 return Ok(read);
             }
         }
-
-        // we finished reading the current extent
-        let last = self.extents.remove(0);
-        self.pos = 0;
-
-        if !self.extents.is_empty() {
-            let next = &self.extents[0];
-
-            // check for HOLES
-            let last_ended = last.block as u64 + last.len as u64;
-            let new_starts = next.block as u64;
-            let hole_size = (new_starts - last_ended) * self.block_size as u64;
-            if 0 != hole_size {
-                // before feeding them the next extent, lets feed them the hole
-                self.sparse_bytes = Some(hole_size);
-            } else {
-                self.inner.seek(io::SeekFrom::Start(self.block_size as u64 * next.start))?;
-            }
-        }
-
-        Ok(read)
     }
 }
 
@@ -219,9 +189,9 @@ mod tests {
     #[test]
     fn simple_tree() {
         let data = (0..255u8).collect::<Vec<u8>>();
-        let size = data.len() as u64;
+        let size = 4 + 4 * 2;
         let all_bytes = io::Cursor::new(data);
-        let mut reader = TreeReader::create(all_bytes, 4, size,
+        let mut reader = TreeReader::create(all_bytes, 4, size as u64,
             vec![
                 Extent {
                     block: 0,
@@ -237,7 +207,7 @@ mod tests {
         ).unwrap();
 
         let mut res = Vec::new();
-        assert_eq!(4 + 4 * 2, reader.read_to_end(&mut res).unwrap());
+        assert_eq!(size, reader.read_to_end(&mut res).unwrap());
 
         assert_eq!(vec![
             40, 41, 42, 43,
