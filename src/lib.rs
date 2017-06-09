@@ -228,7 +228,7 @@ where R: io::Read + io::Seek {
     where F: FnMut(&mut Self, &str, &Inode, &Enhanced) -> Result<bool> {
         let enhanced = inode.enhance(&mut self.inner)?;
 
-        if !visit(self, path.as_str(), &inode, &enhanced)
+        if !visit(self, path.as_str(), inode, &enhanced)
                 .chain_err(|| "user closure failed")? {
             return Ok(false);
         }
@@ -445,7 +445,7 @@ fn parse_error(msg: String) -> Error {
 }
 
 #[allow(unknown_lints, absurd_extreme_comparisons)]
-fn usize_check(val: u64) -> Result<usize> {
+pub fn usize_check(val: u64) -> Result<usize> {
     // this check only makes sense on non-64-bit platforms; on 64-bit usize == u64.
     ensure!(val <= std::usize::MAX as u64,
         AssumptionFailed(format!("value is too big for memory on this platform: {}", val)));

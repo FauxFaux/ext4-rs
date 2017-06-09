@@ -62,7 +62,7 @@ fn find_block(block: u32, extents: &[Extent]) -> FoundBlock {
         }
     }
 
-    return FoundBlock::Sparse(std::u32::MAX);
+    FoundBlock::Sparse(std::u32::MAX)
 }
 
 impl<R> io::Read for TreeReader<R>
@@ -88,7 +88,7 @@ impl<R> io::Read for TreeReader<R>
                 self.inner.seek(io::SeekFrom::Start(extent.start as u64 * block_size + bytes_through_extent))?;
                 let read = self.inner.read(&mut buf[0..to_read])?;
                 self.pos += read as u64;
-                return Ok(read);
+                Ok(read)
             }
             FoundBlock::Sparse(max) => {
                 let max_bytes = max as u64 * block_size;
@@ -96,7 +96,7 @@ impl<R> io::Read for TreeReader<R>
                 let read = std::cmp::min(read as u64, self.len - self.pos) as usize;
                 zero(&mut buf[0..read]);
                 self.pos += read as u64;
-                return Ok(read);
+                Ok(read)
             }
         }
     }
