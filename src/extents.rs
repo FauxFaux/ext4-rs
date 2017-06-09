@@ -24,14 +24,21 @@ pub struct TreeReader<R> {
 
 impl<R> TreeReader<R>
 where R: io::Read + io::Seek {
-    pub fn new(mut inner: R, block_size: u32, block: [u8; 4 * 15]) -> Result<TreeReader<R>> {
+    pub fn new(mut inner: R, block_size: u32, size: u64, block: [u8; 4 * 15]) -> Result<TreeReader<R>> {
         let extents = load_extent_tree(&mut inner, block, block_size)?;
-        TreeReader::create(inner, block_size, extents)
+        TreeReader::create(inner, block_size, size, extents)
     }
 
-    fn create(mut inner: R, block_size: u32, extents: Vec<Extent>) -> Result<TreeReader<R>> {
-        ensure!(0 != extents.len(),
-            AssumptionFailed("there must be extents".to_string()));
+    fn create(mut inner: R, block_size: u32, size: u64, extents: Vec<Extent>) -> Result<TreeReader<R>> {
+        if extents.is_empty() {
+            return Ok(TreeReader {
+                pos: 0,
+                inner,
+                extents,
+                block_size,
+                sparse_bytes: Some(size)
+            });
+        }
 
         ensure!(0 == extents[0].block,
             UnsupportedFeature(format!("can't be sparse at the start: 0 != {}", extents[0].block)));
@@ -53,7 +60,7 @@ impl<R> io::Read for TreeReader<R>
 
 
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        if buf.is_empty() || self.extents.is_empty() {
+        if buf.is_empty() {
             return Ok(0);
         }
 
@@ -68,6 +75,10 @@ impl<R> io::Read for TreeReader<R>
                 zero(&mut buf[0..remaining_sparse as usize]);
                 Ok(remaining_sparse as usize)
             };
+        }
+
+        if self.extents.is_empty() {
+            return Ok(0);
         }
 
         // we must be feeding them a real extent; keep doing so
@@ -132,9 +143,6 @@ where R: io::Read + io::Seek {
     // 4..: max; doesn't seem to be useful during read
     let depth = as_u16(&block[6..]);
     // 8..: generation, not used in standard ext4
-
-    ensure!(extent_entries != 0,
-        AssumptionFailed(format!("table had no entries")));
 
     ensure!(expected_depth == depth,
         AssumptionFailed(format!("depth incorrect: {} != {}", expected_depth, depth)));
@@ -210,9 +218,10 @@ mod tests {
 
     #[test]
     fn simple_tree() {
-        let all_bytes = io::Cursor::new((0..255u8).collect::<Vec<u8>>());
-        let mut reader = TreeReader::create(all_bytes,
-            4,
+        let data = (0..255u8).collect::<Vec<u8>>();
+        let size = data.len() as u64;
+        let all_bytes = io::Cursor::new(data);
+        let mut reader = TreeReader::create(all_bytes, 4, size,
             vec![
                 Extent {
                     block: 0,

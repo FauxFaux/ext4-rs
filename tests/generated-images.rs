@@ -25,8 +25,13 @@ fn all_types() {
             let mut part_reader = ext4::mbr::read_partition(&mut img, &part).unwrap();
             let mut superblock = ext4::SuperBlock::new(&mut part_reader).unwrap();
             let root = superblock.root().unwrap();
-            superblock.walk(&root, image_name.to_string(), &mut |_, path, inode, enhanced| {
+            superblock.walk(&root, image_name.to_string(), &mut |fs, path, inode, enhanced| {
                 println!("<{}> {}: {:?} {:?}", inode.number, path, enhanced, inode.stat);
+                if ext4::FileType::RegularFile == inode.stat.extracted_type {
+                    let mut buf = [0u8; 10];
+                    println!("read {}", fs.open(inode)?.read(&mut buf)?);
+                }
+
                 files_successfully_processed += 1;
                 Ok(true)
             }).unwrap();
