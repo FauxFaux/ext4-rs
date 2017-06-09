@@ -42,7 +42,8 @@ fn all_types() {
             let nice_node = superblock.load_inode(path).unwrap();
             let mut s = String::new();
             superblock.open(&nice_node).unwrap().read_to_string(&mut s).unwrap();
-            println!("{}", s);
+            assert_eq!("Hello, world!\n", s);
+
         }
     }
 
