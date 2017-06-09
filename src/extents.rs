@@ -195,9 +195,9 @@ fn load_extent_tree<R>(mut inner: R, start: [u8; 4 * 15], block_size: u32) -> Re
     Ok(extents)
 }
 
-fn zero(buf: &mut [u8]) {
-    for i in buf {
-        *i = 0;
+fn zero(mut buf: &mut [u8]) {
+    unsafe {
+        std::ptr::write_bytes(buf.as_mut_ptr(), 0u8, buf.len())
     }
 }
 
