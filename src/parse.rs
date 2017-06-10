@@ -275,14 +275,14 @@ where R: io::Read + io::Seek {
     let i_flags =
         inner.read_u32::<LittleEndian>()?; /* File flags */
 //  let l_i_version =
-    inner.read_u32::<LittleEndian>()?;
+        inner.read_u32::<LittleEndian>()?;
 
     let mut block = [0u8; 15 * 4];
         inner.read_exact(&mut block)?; /* Pointers to blocks */
 
 //  let i_generation =
         inner.read_u32::<LittleEndian>()?; /* File version (for NFS) */
-  let i_file_acl_lo =
+    let i_file_acl_lo =
         inner.read_u32::<LittleEndian>()?; /* File ACL */
     let i_size_high =
         inner.read_u32::<LittleEndian>()?;
@@ -290,7 +290,7 @@ where R: io::Read + io::Seek {
         inner.read_u32::<LittleEndian>()?; /* Obsoleted fragment address */
 //  let l_i_blocks_high =
         inner.read_u16::<LittleEndian>()?;
-  let l_i_file_acl_high =
+    let l_i_file_acl_high =
         inner.read_u16::<LittleEndian>()?;
     let l_i_uid_high =
         inner.read_u16::<LittleEndian>()?;
