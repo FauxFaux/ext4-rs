@@ -68,6 +68,32 @@ pub use errors::*;
 use errors::ErrorKind::*;
 
 bitflags! {
+    struct FeatureCompat: u16 {
+        const DIR_PREALLOC  = 0x0001;
+        const IMAGIC_INODES = 0x0002;
+        const HAS_JOURNAL   = 0x0004;
+        const EXT_ATTR      = 0x0008;
+        const RESIZE_INODE  = 0x0010;
+        const DIR_INDEX     = 0x0020;
+        const SPARSE_SUPER2 = 0x0200;
+    }
+}
+
+bitflags! {
+    struct FeatureReadOnlyCompat: u16 {
+        const SPARSE_SUPER = 0x0001;
+        const LARGE_FILE   = 0x0002;
+        const BTREE_DIR    = 0x0004;
+        const HUGE_FILE    = 0x0008;
+        const GDT_CSUM     = 0x0010;
+        const DIR_NLINK    = 0x0020;
+        const EXTRA_ISIZE  = 0x0040;
+        const QUOTA        = 0x0100;
+        const BIGALLOC     = 0x0200;
+    }
+}
+
+bitflags! {
     struct InodeFlags: u32 {
         const INODE_SECRM        = 0x00000001; /* Secure deletion */
         const INODE_UNRM         = 0x00000002; /* Undelete */
