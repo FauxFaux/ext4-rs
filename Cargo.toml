@@ -13,6 +13,7 @@ license = "MIT"
 [dependencies]
 bitflags = "0.9.1"
 byteorder = "1.0.0"
+crc = "1.0.0"
 error-chain = "0.10.0"
 
 [badges]

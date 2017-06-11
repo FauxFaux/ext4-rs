@@ -68,9 +68,9 @@ impl<R: Seek> Seek for RangeReader<R> {
                 self.first_byte.checked_add(dist).expect("start overflow")),
             SeekFrom::Current(dist) => SeekFrom::Current(dist),
             SeekFrom::End(dist) => {
-                assert!(dist >= 0, "can't seek negatively at end");
+                assert!(dist <= 0, "can't seek positively at end");
                 // TODO: checked?
-                SeekFrom::Start(self.first_byte + self.len - dist as u64)
+                SeekFrom::Start(self.first_byte + self.len - (-dist) as u64)
             }
         })?;
 
@@ -164,7 +164,7 @@ mod tests {
         assert_eq!(2, buf[0]);
         assert_eq!(3, buf[1]);
 
-        reader.seek(SeekFrom::End(2)).expect("seek");
+        reader.seek(SeekFrom::End(-2)).expect("seek");
         reader.read_exact(&mut buf).expect("read");
         assert_eq!(5, buf[0]);
         assert_eq!(6, buf[1]);

@@ -9,12 +9,47 @@ use ::errors::ErrorKind::*;
 
 use std::collections::HashMap;
 
+use crc;
+
 use byteorder::{ReadBytesExt, LittleEndian, BigEndian};
+
+use std::io::Read;
+use std::io::Seek;
 
 const EXT4_SUPER_MAGIC: u16 = 0xEF53;
 const INODE_BASE_LEN: u32 = 128;
 const INODE_EXTRA_SUPPORTED_FIELDS_LEN: u16 = 28;
 const XATTR_MAGIC: u32 = 0xEA020000;
+
+bitflags! {
+    struct CompatibleFeature: u32 {
+        const DIR_PREALLOC  = 0x0001;
+        const IMAGIC_INODES = 0x0002;
+        const HAS_JOURNAL   = 0x0004;
+        const EXT_ATTR      = 0x0008;
+        const RESIZE_INODE  = 0x0010;
+        const DIR_INDEX     = 0x0020;
+        const SPARSE_SUPER2 = 0x0200;
+    }
+}
+
+bitflags! {
+    struct CompatibleFeatureReadOnly: u32 {
+        const SPARSE_SUPER  = 0x0001;
+        const LARGE_FILE    = 0x0002;
+        const BTREE_DIR     = 0x0004;
+        const HUGE_FILE     = 0x0008;
+        const GDT_CSUM      = 0x0010;
+        const DIR_NLINK     = 0x0020;
+        const EXTRA_ISIZE   = 0x0040;
+        const QUOTA         = 0x0100;
+        const BIGALLOC      = 0x0200;
+        const METADATA_CSUM = 0x0400;
+        const READONLY      = 0x1000;
+        const PROJECT       = 0x2000;
+
+    }
+}
 
 bitflags! {
     struct IncompatibleFeature: u32 {
@@ -36,8 +71,13 @@ bitflags! {
     }
 }
 
-pub fn superblock<R>(mut inner: R) -> Result<::SuperBlock<R>>
+pub fn superblock<R>(mut reader: R) -> Result<::SuperBlock<R>>
 where R: io::Read + io::Seek {
+
+    let mut entire_superblock = [0u8; 1024];
+    reader.read_exact(&mut entire_superblock)?;
+
+    let mut inner = io::Cursor::new(&mut entire_superblock[..]);
 
     // <a cut -c 9- | fgrep ' s_' | fgrep -v ERR_ | while read ty nam comment; do printf "let %s =\n  inner.read_%s::<LittleEndian>()?; %s\n" $(echo $nam | tr -d ';') $(echo $ty | sed 's/__le/u/; s/__//') $comment; done
 //    let s_inodes_count =
@@ -104,8 +144,13 @@ where R: io::Read + io::Seek {
         inner.read_u16::<LittleEndian>()?; /* size of inode structure */
 //    let s_block_group_nr =
         inner.read_u16::<LittleEndian>()?; /* block group # of this superblock */
-//    let s_feature_compat =
+    let s_feature_compat =
         inner.read_u32::<LittleEndian>()?; /* compatible feature set */
+
+    let compatible_features = CompatibleFeature::from_bits_truncate(s_feature_compat);
+
+    let load_xattrs = compatible_features.contains(EXT_ATTR);
+
     let s_feature_incompat =
         inner.read_u32::<LittleEndian>()?; /* incompatible feature set */
 
@@ -126,8 +171,17 @@ where R: io::Read + io::Seek {
 
     let long_structs = incompatible_features.contains(INCOMPAT_64BIT);
 
-//    let s_feature_ro_compat =
+    let s_feature_ro_compat =
         inner.read_u32::<LittleEndian>()?; /* readonly-compatible feature set */
+
+    let compatible_features_read_only = CompatibleFeatureReadOnly::from_bits_truncate(s_feature_ro_compat);
+
+    let has_checksums = compatible_features_read_only.contains(METADATA_CSUM);
+
+    ensure!(!(has_checksums && compatible_features_read_only.contains(GDT_CSUM)),
+        AssumptionFailed("metadata checksums are incompatible with the GDT checksum feature".to_string())
+    );
+
     let mut s_uuid = [0; 16];
     inner.read_exact(&mut s_uuid)?; /* 128-bit uuid for volume */
     let mut s_volume_name = [0u8; 16];
@@ -192,6 +246,15 @@ where R: io::Read + io::Seek {
 //            Some(inner.read_u32::<LittleEndian>()?) /* Miscellaneous flags */
 //        };
 
+    if has_checksums {
+        inner.seek(io::SeekFrom::End(-4))?;
+        let s_checksum = inner.read_u32::<LittleEndian>()?;
+        let expected = ext4_style_crc32c_le(!0, &inner.into_inner()[..(1024-4)]);
+        ensure!(s_checksum == expected,
+            AssumptionFailed(format!("superblock reports checksums supported, but didn't match: {:x} != {:x}",
+                s_checksum, expected)));
+    }
+
     {
         const S_STATE_UNMOUNTED_CLEANLY: u16 = 0b01;
         const S_STATE_ERRORS_DETECTED: u16 = 0b10;
@@ -233,19 +296,27 @@ where R: io::Read + io::Seek {
         block_size
     };
 
-    inner.seek(io::SeekFrom::Start(group_table_pos as u64))?;
+    reader.seek(io::SeekFrom::Start(group_table_pos as u64))?;
     let blocks_count = (
         s_blocks_count_lo as u64
         + ((s_blocks_count_hi.unwrap_or(0) as u64) << 32)
         - s_first_data_block as u64 + s_blocks_per_group as u64 - 1
     ) / s_blocks_per_group as u64;
 
-    let groups = ::block_groups::BlockGroups::new(&mut inner, blocks_count,
+    let groups = ::block_groups::BlockGroups::new(&mut reader, blocks_count,
                                                 s_desc_size, s_inodes_per_group,
                                                 block_size, s_inode_size)?;
 
+    let uuid_checksum = if has_checksums {
+        Some(crc::crc32::checksum_castagnoli(&s_uuid))
+    } else {
+        None
+    };
+
     Ok(::SuperBlock {
-        inner,
+        inner: reader,
+        load_xattrs,
+        uuid_checksum,
         groups,
     })
 }
@@ -493,4 +564,47 @@ where R: io::Read + io::Seek {
     }
 
     Ok(xattrs)
+}
+
+/// This is what the function in the ext4 code does, based on its results. I'm so sorry.
+fn ext4_style_crc32c_le(seed: u32, buf: &[u8]) -> u32 {
+    crc::crc32::update(seed ^ (!0), &crc::crc32::CASTAGNOLI_TABLE, buf) ^ (!0u32)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ext4_style_crc32c_le;
+
+    #[test]
+    fn crcs() {
+        /*
+        Comparing with:
+        % gcc m.c crc32c.c -I .. -o m && ./m
+        e2fsprogs-1.43.4/lib/ext2fs% cat m.c
+            int main() {
+                printf("%08x\n", ext2fs_crc32c_le(SEED, DATA, DATA.len()));
+            }
+
+            typedef unsigned int __u32;
+
+            __u32 ext2fs_swab32(__u32 val)
+            {
+                return ((val>>24) | ((val>>8)&0xFF00) |
+                    ((val<<8)&0xFF0000) | (val<<24));
+            }
+        */
+
+        assert_eq!(0xffff_ffffu32, !0);
+        // e3069283 is the "standard" test vector that you can Google up.
+        assert_eq!(0x1cf96d7cu32, 0xe3069283u32 ^ !0);
+        assert_crc(0x1cf96d7c, !0, b"123456789");
+        assert_crc(0x58e3fa20, 0, b"123456789");
+    }
+
+    fn assert_crc(ex: u32, seed: u32, input: &[u8]) {
+        let ac = ext4_style_crc32c_le(seed, input);
+        if ex != ac {
+            panic!("CRC didn't match! ex: {:08x}, ac: {:08x}, len: {}", ex, ac, input.len());
+        }
+    }
 }

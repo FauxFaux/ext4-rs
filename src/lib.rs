@@ -19,6 +19,7 @@ file on the filesystem. You can grant yourself temporary access with
 
 #[macro_use] extern crate bitflags;
 extern crate byteorder;
+extern crate crc;
 #[macro_use] extern crate error_chain;
 
 use std::io;
@@ -66,32 +67,6 @@ mod errors {
 
 pub use errors::*;
 use errors::ErrorKind::*;
-
-bitflags! {
-    struct FeatureCompat: u16 {
-        const DIR_PREALLOC  = 0x0001;
-        const IMAGIC_INODES = 0x0002;
-        const HAS_JOURNAL   = 0x0004;
-        const EXT_ATTR      = 0x0008;
-        const RESIZE_INODE  = 0x0010;
-        const DIR_INDEX     = 0x0020;
-        const SPARSE_SUPER2 = 0x0200;
-    }
-}
-
-bitflags! {
-    struct FeatureReadOnlyCompat: u16 {
-        const SPARSE_SUPER = 0x0001;
-        const LARGE_FILE   = 0x0002;
-        const BTREE_DIR    = 0x0004;
-        const HUGE_FILE    = 0x0008;
-        const GDT_CSUM     = 0x0010;
-        const DIR_NLINK    = 0x0020;
-        const EXTRA_ISIZE  = 0x0040;
-        const QUOTA        = 0x0100;
-        const BIGALLOC     = 0x0200;
-    }
-}
 
 bitflags! {
     struct InodeFlags: u32 {
@@ -216,6 +191,9 @@ pub struct Inode {
 #[derive(Debug)]
 pub struct SuperBlock<R> {
     inner: R,
+    load_xattrs: bool,
+    /// All* checksums are computed after concatenation with the UUID, so we keep that.
+    uuid_checksum: Option<u32>,
     groups: block_groups::BlockGroups,
 }
 
