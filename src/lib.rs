@@ -69,7 +69,7 @@ pub use errors::*;
 use errors::ErrorKind::*;
 
 bitflags! {
-    struct InodeFlags: u32 {
+    pub struct InodeFlags: u32 {
         const INODE_SECRM        = 0x00000001; /* Secure deletion */
         const INODE_UNRM         = 0x00000002; /* Undelete */
         const INODE_COMPR        = 0x00000004; /* Compress file */
@@ -216,8 +216,23 @@ where R: io::Read + io::Seek {
     /// Load a filesystem entry by inode number.
     pub fn load_inode(&mut self, inode: u32) -> Result<Inode> {
         self.inner.seek(io::SeekFrom::Start(self.groups.index_of(inode)?))?;
-        parse::inode(&mut self.inner, inode, self.groups.inode_size, self.groups.block_size)
-            .chain_err(|| format!("failed to parse inode <{}>", inode))
+        let mut data = vec![0u8; self.groups.inode_size as usize];
+        self.inner.read_exact(&mut data)?;
+
+        let parsed = parse::inode(&data, |block| {
+            self.inner.seek(io::SeekFrom::Start(block as u64 * self.groups.block_size as u64))?;
+            let mut next = vec![0u8; self.groups.block_size as usize];
+            self.inner.read_exact(&mut next)?;
+            Ok(next)
+        }).chain_err(|| format!("failed to parse inode <{}>", inode))?;
+
+        Ok(Inode {
+            number: inode,
+            stat: parsed.stat,
+            flags: parsed.flags,
+            block: parsed.contents,
+            block_size: self.groups.block_size,
+        })
     }
 
     /// Load the root node of the filesystem (typically `/`).

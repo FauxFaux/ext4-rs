@@ -324,10 +324,14 @@ where R: io::Read + io::Seek {
     })
 }
 
-pub fn inode<R>(mut inner: R, inode: u32, inode_size: u16, block_size: u32) -> Result<::Inode>
-where R: io::Read + io::Seek {
-    let mut data = vec![0u8; inode_size as usize];
-    inner.read_exact(&mut data)?;
+pub struct ParsedInode {
+    pub stat: ::Stat,
+    pub flags: ::InodeFlags,
+    pub contents: [u8; 60],
+}
+
+pub fn inode<F>(data: &[u8], load_block: F) -> Result<ParsedInode>
+where F: FnOnce(u32) -> Result<Vec<u8>> {
 
     // generated from inode.spec by structs.py
     let i_mode            = read_le16(&data[0x00..0x02]); /* File mode */
@@ -372,7 +376,7 @@ where R: io::Read + io::Seek {
     // extended attributes after the inode
     let mut xattrs = HashMap::new();
 
-    if inode_end + 4 <= inode_size as usize && XATTR_MAGIC == read_le32(&data[inode_end..(inode_end + 4)]) {
+    if inode_end + 4 <= data.len() && XATTR_MAGIC == read_le32(&data[inode_end..(inode_end + 4)]) {
         let table_start = &data[inode_end + 4..];
         read_xattrs(&mut xattrs, table_start, table_start)?;
     }
@@ -380,12 +384,8 @@ where R: io::Read + io::Seek {
     if 0 != i_file_acl_lo || 0 != l_i_file_acl_high {
         let block = i_file_acl_lo as u32 | ((l_i_file_acl_high as u32) << 16);
 
-        inner.seek(io::SeekFrom::Start(block as u64 * block_size as u64))?;
-        let mut data = vec![0u8; block_size as usize];
-        inner.read_exact(&mut data)?;
-
-        xattr_block(&mut xattrs, &data)
-            .chain_err(|| format!("loading xattr block {} @ {}", block, (block as u64 * block_size as u64)))?
+        xattr_block(&mut xattrs, &load_block(block)?)
+            .chain_err(|| format!("loading xattr block {}", block))?
     }
 
     let stat = ::Stat {
@@ -418,13 +418,11 @@ where R: io::Read + io::Seek {
     let mut block = [0u8; 60];
     block.clone_from_slice(i_block);
 
-    Ok(::Inode {
+    Ok(ParsedInode {
         stat,
-        number: inode,
         flags: ::InodeFlags::from_bits(i_flags)
             .expect("unrecognised inode flags"),
-        block,
-        block_size,
+        contents: block,
     })
 }
 
