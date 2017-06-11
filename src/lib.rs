@@ -12,7 +12,7 @@ let inode = superblock.load_inode(target_inode_number).unwrap();
 let passwd_reader = superblock.open(&inode).unwrap();
 ```
 
-Note: normal users can't read /dev/sda by default, as it would allow them to read any
+Note: normal users can't read `/dev/sda1` by default, as it would allow them to read any
 file on the filesystem. You can grant yourself temporary access with
 `sudo setfacl -m u:${USER}:r /dev/sda1`, if you so fancy. This will be lost at reboot.
 */
