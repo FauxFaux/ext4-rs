@@ -32,7 +32,9 @@ use std::io::Seek;
 
 mod block_groups;
 mod extents;
-mod parse;
+
+/// Raw object parsing API. Not versioned / supported.
+pub mod parse;
 
 pub mod mbr;
 
