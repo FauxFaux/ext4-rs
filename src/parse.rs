@@ -427,6 +427,8 @@ where R: io::Read + io::Seek {
 
 fn xattr_block(xattrs: &mut HashMap<String, Vec<u8>>, data: &[u8]) -> Result<()> {
 
+    ensure!(data.len() > 0x20,
+        AssumptionFailed("xattr block is way too short".to_string()));
 
     ensure!(XATTR_MAGIC == read_le32(&data[0x00..0x04]),
         AssumptionFailed("xattr block contained invalid magic number".to_string()));
@@ -446,6 +448,9 @@ fn xattr_block(xattrs: &mut HashMap<String, Vec<u8>>, data: &[u8]) -> Result<()>
 fn read_xattrs(xattrs: &mut HashMap<String, Vec<u8>>, mut reading: &[u8], block_offset_start: &[u8]) -> Result<()> {
 
     loop {
+        ensure!(reading.len() > 0x10,
+            AssumptionFailed("out of block while reading xattr header".to_string()));
+
         let e_name_len          = reading[0x00];
         let e_name_prefix_magic = reading[0x01];
         let e_value_offset      = read_le16(&reading[0x02..0x04]);
@@ -459,6 +464,9 @@ fn read_xattrs(xattrs: &mut HashMap<String, Vec<u8>>, mut reading: &[u8], block_
         let e_hash              = read_le32(&reading[0x0C..0x10]);
 
         let end_of_name = 0x10 + e_name_len as usize;
+
+        ensure!(reading.len() > end_of_name,
+            AssumptionFailed("out of block while reading xattr name".to_string()));
 
         let name_suffix         = &reading[0x10..end_of_name];
 
