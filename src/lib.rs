@@ -215,16 +215,11 @@ where R: io::Read + io::Seek {
 
     /// Load a filesystem entry by inode number.
     pub fn load_inode(&mut self, inode: u32) -> Result<Inode> {
-        self.inner.seek(io::SeekFrom::Start(self.groups.index_of(inode)?))?;
-        let mut data = vec![0u8; self.groups.inode_size as usize];
-        self.inner.read_exact(&mut data)?;
+        let data = self.load_inode_bytes(inode)
+            .chain_err(|| format!("failed to find inode <{}> on disc", inode))?;
 
-        let parsed = parse::inode(&data, |block| {
-            self.inner.seek(io::SeekFrom::Start(block as u64 * self.groups.block_size as u64))?;
-            let mut next = vec![0u8; self.groups.block_size as usize];
-            self.inner.read_exact(&mut next)?;
-            Ok(next)
-        }).chain_err(|| format!("failed to parse inode <{}>", inode))?;
+        let parsed = parse::inode(&data, |block| self.load_disc_bytes(block))
+            .chain_err(|| format!("failed to parse inode <{}>", inode))?;
 
         Ok(Inode {
             number: inode,
@@ -233,6 +228,20 @@ where R: io::Read + io::Seek {
             block: parsed.contents,
             block_size: self.groups.block_size,
         })
+    }
+
+    fn load_inode_bytes(&mut self, inode: u32) -> Result<Vec<u8>> {
+        self.inner.seek(io::SeekFrom::Start(self.groups.index_of(inode)?))?;
+        let mut data = vec![0u8; self.groups.inode_size as usize];
+        self.inner.read_exact(&mut data)?;
+        Ok(data)
+    }
+
+    fn load_disc_bytes(&mut self, block: u32) -> Result<Vec<u8>> {
+        self.inner.seek(io::SeekFrom::Start(block as u64 * self.groups.block_size as u64))?;
+        let mut data = vec![0u8; self.groups.block_size as usize];
+        self.inner.read_exact(&mut data)?;
+        Ok(data)
     }
 
     /// Load the root node of the filesystem (typically `/`).
