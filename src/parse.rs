@@ -333,6 +333,9 @@ pub struct ParsedInode {
 pub fn inode<F>(data: &[u8], load_block: F) -> Result<ParsedInode>
 where F: FnOnce(u64) -> Result<Vec<u8>> {
 
+    ensure!(data.len() >= INODE_BASE_LEN,
+        AssumptionFailed("inode isn't bigger than the minimum length".to_string()));
+
     // generated from inode.spec by structs.py
     let i_mode            = read_le16(&data[0x00..0x02]); /* File mode */
     let i_uid             = read_le16(&data[0x02..0x04]); /* Low 16 bits of Owner Uid */
@@ -421,7 +424,7 @@ where F: FnOnce(u64) -> Result<Vec<u8>> {
     Ok(ParsedInode {
         stat,
         flags: ::InodeFlags::from_bits(i_flags)
-            .expect("unrecognised inode flags"),
+            .ok_or_else(|| UnsupportedFeature(format!("unrecognised inode flags: {:b}", i_flags)))?,
         core,
     })
 }
