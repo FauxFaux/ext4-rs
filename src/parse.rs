@@ -366,17 +366,19 @@ where R: io::Read + io::Seek {
 //    let i_projid          = if i_extra_isize < 30 { None } else { Some(read_le32(&data[0x9C..0xA0])) }; /* Project ID */
 
     // extended attributes after the inode
-    let inode_end = INODE_BASE_LEN + i_extra_isize as usize;
-    ensure!(inode_end + 4 >= inode_size as usize || XATTR_MAGIC != read_le32(&data[inode_end..(inode_end + 4)]),
-        UnsupportedFeature("xattrs in inode".to_string()));
+    let mut xattrs = HashMap::new();
 
-    let xattrs = if 0 != i_file_acl_lo || 0 != l_i_file_acl_high {
+    let inode_end = INODE_BASE_LEN + i_extra_isize as usize;
+    if inode_end + 4 <= inode_size as usize && XATTR_MAGIC == read_le32(&data[inode_end..(inode_end + 4)]) {
+        let table_start = &data[inode_end + 4..];
+        read_xattrs(&mut xattrs, table_start, table_start)?;
+    }
+
+    if 0 != i_file_acl_lo || 0 != l_i_file_acl_high {
         let block = i_file_acl_lo as u32 | ((l_i_file_acl_high as u32) << 16);
-        xattr_block(&mut inner, block, block_size)
+        xattr_block(&mut xattrs, &mut inner, block, block_size)
             .chain_err(|| format!("loading xattr block {} @ {}", block, (block as u64 * block_size as u64)))?
-    } else {
-        HashMap::new()
-    };
+    }
 
     let stat = ::Stat {
         extracted_type: ::FileType::from_mode(i_mode)
@@ -418,7 +420,7 @@ where R: io::Read + io::Seek {
     })
 }
 
-fn xattr_block<R>(inner: &mut R, block: u32, block_size: u32) -> Result<HashMap<String, Vec<u8>>>
+fn xattr_block<R>(xattrs: &mut HashMap<String, Vec<u8>>, inner: &mut R, block: u32, block_size: u32) -> Result<()>
 where R: io::Read + io::Seek {
     inner.seek(io::SeekFrom::Start(block as u64 * block_size as u64))?;
 
@@ -437,10 +439,10 @@ where R: io::Read + io::Seek {
     ensure!(1 == x_blocks_used,
         UnsupportedFeature(format!("must have exactly one xattr block, not {}", x_blocks_used)));
 
-    let mut reading = &data[0x20..];
-    let block_offset_start = &data[..];
+    read_xattrs(xattrs, &data[0x20..], &data[..])
+}
 
-    let mut xattrs = HashMap::new();
+fn read_xattrs(xattrs: &mut HashMap<String, Vec<u8>>, mut reading: &[u8], block_offset_start: &[u8]) -> Result<()> {
 
     loop {
         let e_name_len          = reading[0x00];
@@ -485,7 +487,7 @@ where R: io::Read + io::Seek {
         reading = &reading[next_record..];
     }
 
-    Ok(xattrs)
+    Ok(())
 }
 
 /// This is what the function in the ext4 code does, based on its results. I'm so sorry.
