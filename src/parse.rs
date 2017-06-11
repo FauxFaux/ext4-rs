@@ -355,20 +355,23 @@ where R: io::Read + io::Seek {
 //    let l_i_reserved      = read_le16(&data[0x7E..0x80]);
 
     let i_extra_isize     = if data.len() < 0x82 { 0 } else { read_le16(&data[0x80..0x82]) };
+    let inode_end = INODE_BASE_LEN + i_extra_isize as usize;
 
-    let i_checksum_hi     = if i_extra_isize <  2 { None } else { Some(read_le16(&data[0x82..0x84])) }; /* crc32c(uuid+inum+inode) BE */
-    let i_ctime_extra     = if i_extra_isize <  6 { None } else { Some(read_le32(&data[0x84..0x88])) }; /* extra Change time      (nsec << 2 | epoch) */
-    let i_mtime_extra     = if i_extra_isize < 10 { None } else { Some(read_le32(&data[0x88..0x8C])) }; /* extra Modification time(nsec << 2 | epoch) */
-    let i_atime_extra     = if i_extra_isize < 14 { None } else { Some(read_le32(&data[0x8C..0x90])) }; /* extra Access time      (nsec << 2 | epoch) */
-    let i_crtime          = if i_extra_isize < 18 { None } else { Some(read_le32(&data[0x90..0x94])) }; /* File Creation time */
-    let i_crtime_extra    = if i_extra_isize < 22 { None } else { Some(read_le32(&data[0x94..0x98])) }; /* extra FileCreationtime (nsec << 2 | epoch) */
+    ensure!(inode_end <= data.len(),
+        AssumptionFailed(format!("more extra inode ({}) than inode ({})", inode_end, data.len())));
+
+    let i_checksum_hi     = if i_extra_isize <  2 + 2 { None } else { Some(read_le16(&data[0x82..0x84])) }; /* crc32c(uuid+inum+inode) BE */
+    let i_ctime_extra     = if i_extra_isize <  6 + 2 { None } else { Some(read_le32(&data[0x84..0x88])) }; /* extra Change time      (nsec << 2 | epoch) */
+    let i_mtime_extra     = if i_extra_isize < 10 + 2 { None } else { Some(read_le32(&data[0x88..0x8C])) }; /* extra Modification time(nsec << 2 | epoch) */
+    let i_atime_extra     = if i_extra_isize < 14 + 2 { None } else { Some(read_le32(&data[0x8C..0x90])) }; /* extra Access time      (nsec << 2 | epoch) */
+    let i_crtime          = if i_extra_isize < 18 + 2 { None } else { Some(read_le32(&data[0x90..0x94])) }; /* File Creation time */
+    let i_crtime_extra    = if i_extra_isize < 22 + 2 { None } else { Some(read_le32(&data[0x94..0x98])) }; /* extra FileCreationtime (nsec << 2 | epoch) */
 //    let i_version_hi      = if i_extra_isize < 26 { None } else { Some(read_le32(&data[0x98..0x9C])) }; /* high 32 bits for 64-bit version */
 //    let i_projid          = if i_extra_isize < 30 { None } else { Some(read_le32(&data[0x9C..0xA0])) }; /* Project ID */
 
     // extended attributes after the inode
     let mut xattrs = HashMap::new();
 
-    let inode_end = INODE_BASE_LEN + i_extra_isize as usize;
     if inode_end + 4 <= inode_size as usize && XATTR_MAGIC == read_le32(&data[inode_end..(inode_end + 4)]) {
         let table_start = &data[inode_end + 4..];
         read_xattrs(&mut xattrs, table_start, table_start)?;
