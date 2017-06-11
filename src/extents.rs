@@ -26,7 +26,7 @@ pub struct TreeReader<R> {
 impl<R> TreeReader<R>
 where R: io::Read + io::Seek {
     pub fn new(mut inner: R, block_size: u32, size: u64, core: [u8; ::INODE_CORE_SIZE]) -> Result<TreeReader<R>> {
-        let extents = load_extent_tree(&mut inner, core, block_size)?;
+        let extents = load_extent_tree(&mut |block| ::load_disc_bytes(&mut inner, block_size, block), core)?;
         TreeReader::create(inner, block_size, size, extents)
     }
 
@@ -122,13 +122,12 @@ where R: io::Read + io::Seek {
 }
 
 
-fn add_found_extents<R>(
-    block_size: u32,
-    mut inner: &mut R,
+fn add_found_extents<F>(
+    load_block: &mut F,
     data: &[u8],
     expected_depth: u16,
     extents: &mut Vec<Extent>) -> Result<()>
-where R: io::Read + io::Seek {
+where F: FnMut(u64) -> Result<Vec<u8>> {
 
     ensure!(0x0a == data[0] && 0xf3 == data[1],
         AssumptionFailed("invalid extent magic".to_string()));
@@ -166,17 +165,15 @@ where R: io::Read + io::Seek {
         let ei_leaf_lo = as_u32(&extent_idx[4..]);
         let ei_leaf_hi = as_u16(&extent_idx[8..]);
         let ee_leaf: u64 = ei_leaf_lo as u64 + ((ei_leaf_hi as u64) << 32);
-        inner.seek(io::SeekFrom::Start(block_size as u64 * ee_leaf))?;
-        let mut block = vec![0u8; block_size as usize];
-        inner.read_exact(&mut block)?;
-        add_found_extents(block_size, inner, &block, depth - 1, extents)?;
+        let data = load_block(ee_leaf)?;
+        add_found_extents(load_block, &data, depth - 1, extents)?;
     }
 
     Ok(())
 }
 
-fn load_extent_tree<R>(mut inner: R, core: [u8; ::INODE_CORE_SIZE], block_size: u32) -> Result<Vec<Extent>>
-    where R: io::Read + io::Seek {
+fn load_extent_tree<F>(load_block: &mut F, core: [u8; ::INODE_CORE_SIZE]) -> Result<Vec<Extent>>
+where F: FnMut(u64) -> Result<Vec<u8>> {
     ensure!(0x0a == core[0] && 0xf3 == core[1],
         AssumptionFailed("invalid extent magic".to_string()));
 
@@ -189,7 +186,7 @@ fn load_extent_tree<R>(mut inner: R, core: [u8; ::INODE_CORE_SIZE], block_size: 
 
     let mut extents = Vec::with_capacity(extent_entries as usize + depth as usize * 200);
 
-    add_found_extents(block_size, &mut inner, &core, depth, &mut extents)?;
+    add_found_extents(load_block, &core, depth, &mut extents)?;
 
     extents.sort_by_key(|e| e.part);
 

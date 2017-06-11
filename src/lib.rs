@@ -242,11 +242,8 @@ where R: io::Read + io::Seek {
         Ok(data)
     }
 
-    fn load_disc_bytes(&mut self, block: u32) -> Result<Vec<u8>> {
-        self.inner.seek(io::SeekFrom::Start(block as u64 * self.groups.block_size as u64))?;
-        let mut data = vec![0u8; self.groups.block_size as usize];
-        self.inner.read_exact(&mut data)?;
-        Ok(data)
+    fn load_disc_bytes(&mut self, block: u64) -> Result<Vec<u8>> {
+        load_disc_bytes(&mut self.inner, self.groups.block_size, block)
     }
 
     /// Load the root node of the filesystem (typically `/`).
@@ -337,6 +334,14 @@ where R: io::Read + io::Seek {
     pub fn enhance(&mut self, inode: &Inode) -> Result<Enhanced> {
         inode.enhance(&mut self.inner)
     }
+}
+
+fn load_disc_bytes<R>(mut inner: R, block_size: u32, block: u64) -> Result<Vec<u8>>
+where R: io::Read + io::Seek {
+    inner.seek(io::SeekFrom::Start(block as u64 * block_size as u64))?;
+    let mut data = vec![0u8; block_size as usize];
+    inner.read_exact(&mut data)?;
+    Ok(data)
 }
 
 impl Inode {
