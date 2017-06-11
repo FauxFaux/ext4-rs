@@ -24,8 +24,8 @@ pub struct TreeReader<R> {
 
 impl<R> TreeReader<R>
 where R: io::Read + io::Seek {
-    pub fn new(mut inner: R, block_size: u32, size: u64, block: [u8; 4 * 15]) -> Result<TreeReader<R>> {
-        let extents = load_extent_tree(&mut inner, block, block_size)?;
+    pub fn new(mut inner: R, block_size: u32, size: u64, core: [u8; ::INODE_CORE_SIZE]) -> Result<TreeReader<R>> {
+        let extents = load_extent_tree(&mut inner, core, block_size)?;
         TreeReader::create(inner, block_size, size, extents)
     }
 
@@ -124,17 +124,17 @@ where R: io::Read + io::Seek {
 fn add_found_extents<R>(
     block_size: u32,
     mut inner: &mut R,
-    block: &[u8],
+    data: &[u8],
     expected_depth: u16,
     extents: &mut Vec<Extent>) -> Result<()>
 where R: io::Read + io::Seek {
 
-    ensure!(0x0a == block[0] && 0xf3 == block[1],
+    ensure!(0x0a == data[0] && 0xf3 == data[1],
         AssumptionFailed("invalid extent magic".to_string()));
 
-    let extent_entries = as_u16(&block[2..]);
+    let extent_entries = as_u16(&data[2..]);
     // 4..: max; doesn't seem to be useful during read
-    let depth = as_u16(&block[6..]);
+    let depth = as_u16(&data[6..]);
     // 8..: generation, not used in standard ext4
 
     ensure!(expected_depth == depth,
@@ -142,7 +142,7 @@ where R: io::Read + io::Seek {
 
     if 0 == depth {
         for en in 0..extent_entries {
-            let raw_extent = &block[12 + en as usize * 12..];
+            let raw_extent = &data[12 + en as usize * 12..];
             let ee_block = as_u32(raw_extent);
             let ee_len = as_u16(&raw_extent[4..]);
             let ee_start_hi = as_u16(&raw_extent[6..]);
@@ -160,7 +160,7 @@ where R: io::Read + io::Seek {
     }
 
     for en in 0..extent_entries {
-        let extent_idx = &block[12 + en as usize * 12..];
+        let extent_idx = &data[12 + en as usize * 12..];
         //            let ei_block = as_u32(extent_idx);
         let ei_leaf_lo = as_u32(&extent_idx[4..]);
         let ei_leaf_hi = as_u16(&extent_idx[8..]);
@@ -174,21 +174,21 @@ where R: io::Read + io::Seek {
     Ok(())
 }
 
-fn load_extent_tree<R>(mut inner: R, start: [u8; 4 * 15], block_size: u32) -> Result<Vec<Extent>>
+fn load_extent_tree<R>(mut inner: R, core: [u8; ::INODE_CORE_SIZE], block_size: u32) -> Result<Vec<Extent>>
     where R: io::Read + io::Seek {
-    ensure!(0x0a == start[0] && 0xf3 == start[1],
+    ensure!(0x0a == core[0] && 0xf3 == core[1],
         AssumptionFailed("invalid extent magic".to_string()));
 
-    let extent_entries = as_u16(&start[2..]);
+    let extent_entries = as_u16(&core[2..]);
     // 4..: max; doesn't seem to be useful during read
-    let depth = as_u16(&start[6..]);
+    let depth = as_u16(&core[6..]);
 
     ensure!(depth <= 5,
         AssumptionFailed(format!("initial depth too high: {}", depth)));
 
     let mut extents = Vec::with_capacity(extent_entries as usize + depth as usize * 200);
 
-    add_found_extents(block_size, &mut inner, &start, depth, &mut extents)?;
+    add_found_extents(block_size, &mut inner, &core, depth, &mut extents)?;
 
     extents.sort_by_key(|e| e.block);
 

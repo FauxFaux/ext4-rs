@@ -178,12 +178,17 @@ pub struct Stat {
     pub xattrs: HashMap<String, Vec<u8>>,
 }
 
+const INODE_CORE_SIZE: usize = 4 * 15;
+
 /// An actual disc metadata entry.
 pub struct Inode {
     pub stat: Stat,
     pub number: u32,
     flags: InodeFlags,
-    block: [u8; 4 * 15],
+
+    /// The other implementations call this the inode's "block", which is so unbelievably overloaded.
+    /// I made up a new name.
+    core: [u8; INODE_CORE_SIZE],
     block_size: u32,
 }
 
@@ -225,7 +230,7 @@ where R: io::Read + io::Seek {
             number: inode,
             stat: parsed.stat,
             flags: parsed.flags,
-            block: parsed.contents,
+            core: parsed.core,
             block_size: self.groups.block_size,
         })
     }
@@ -338,7 +343,7 @@ impl Inode {
 
     fn reader<R>(&self, inner: R) -> Result<TreeReader<R>>
     where R: io::Read + io::Seek {
-        TreeReader::new(inner, self.block_size, self.stat.size, self.block)
+        TreeReader::new(inner, self.block_size, self.stat.size, self.core)
             .chain_err(|| format!("opening inode <{}>", self.number))
     }
 
@@ -351,21 +356,21 @@ impl Inode {
 
             FileType::Directory => Enhanced::Directory(self.read_directory(inner)?),
             FileType::SymbolicLink =>
-                Enhanced::SymbolicLink(if self.stat.size < 60 {
+                Enhanced::SymbolicLink(if self.stat.size < INODE_CORE_SIZE as u64 {
                     ensure!(self.flags.is_empty(),
                         UnsupportedFeature(format!("symbolic links may not have flags: {:?}", self.flags)));
-                    std::str::from_utf8(&self.block[0..self.stat.size as usize]).expect("utf-8").to_string()
+                    std::str::from_utf8(&self.core[0..self.stat.size as usize]).expect("utf-8").to_string()
                 } else {
                     ensure!(self.only_relevant_flag_is_extents(),
                         UnsupportedFeature(format!("symbolic links may not have non-extent flags: {:?}", self.flags)));
                     std::str::from_utf8(&self.load_all(inner)?).expect("utf-8").to_string()
                 }),
             FileType::CharacterDevice => {
-                let (maj, min) = load_maj_min(self.block);
+                let (maj, min) = load_maj_min(self.core);
                 Enhanced::CharacterDevice(maj, min)
             }
             FileType::BlockDevice => {
-                let (maj, min) = load_maj_min(self.block);
+                let (maj, min) = load_maj_min(self.core);
                 Enhanced::BlockDevice(maj, min)
             }
         })
@@ -447,16 +452,16 @@ impl Inode {
     }
 }
 
-fn load_maj_min(block: [u8; 4 * 15]) -> (u16, u32) {
-    if 0 != block[0] || 0 != block[1] {
-        (block[1] as u16, block[0] as u32)
+fn load_maj_min(core: [u8; INODE_CORE_SIZE]) -> (u16, u32) {
+    if 0 != core[0] || 0 != core[1] {
+        (core[1] as u16, core[0] as u32)
     } else {
         // if you think reading this is bad, I had to write it
-        (block[5] as u16
-             | (((block[6] & 0b0000_1111) as u16) << 8),
-         block[4] as u32
-             | ((block[7] as u32) << 12)
-             | (((block[6] & 0b1111_0000) as u32) >> 4) << 8)
+        (core[5] as u16
+             | (((core[6] & 0b0000_1111) as u16) << 8),
+         core[4] as u32
+             | ((core[7] as u32) << 12)
+             | (((core[6] & 0b1111_0000) as u32) >> 4) << 8)
     }
 }
 

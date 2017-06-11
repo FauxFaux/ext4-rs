@@ -327,7 +327,7 @@ where R: io::Read + io::Seek {
 pub struct ParsedInode {
     pub stat: ::Stat,
     pub flags: ::InodeFlags,
-    pub contents: [u8; 60],
+    pub core: [u8; ::INODE_CORE_SIZE],
 }
 
 pub fn inode<F>(data: &[u8], load_block: F) -> Result<ParsedInode>
@@ -385,7 +385,7 @@ where F: FnOnce(u32) -> Result<Vec<u8>> {
         let block = i_file_acl_lo as u32 | ((l_i_file_acl_high as u32) << 16);
 
         xattr_block(&mut xattrs, &load_block(block)?)
-            .chain_err(|| format!("loading xattr block {}", block))?
+            .chain_err(|| format!("loading xattr core {}", block))?
     }
 
     let stat = ::Stat {
@@ -415,14 +415,14 @@ where F: FnOnce(u32) -> Result<Vec<u8>> {
         xattrs,
     };
 
-    let mut block = [0u8; 60];
-    block.clone_from_slice(i_block);
+    let mut core = [0u8; ::INODE_CORE_SIZE];
+    core.clone_from_slice(i_block);
 
     Ok(ParsedInode {
         stat,
         flags: ::InodeFlags::from_bits(i_flags)
             .expect("unrecognised inode flags"),
-        contents: block,
+        core,
     })
 }
 
