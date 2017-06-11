@@ -376,7 +376,12 @@ where R: io::Read + io::Seek {
 
     if 0 != i_file_acl_lo || 0 != l_i_file_acl_high {
         let block = i_file_acl_lo as u32 | ((l_i_file_acl_high as u32) << 16);
-        xattr_block(&mut xattrs, &mut inner, block, block_size)
+
+        inner.seek(io::SeekFrom::Start(block as u64 * block_size as u64))?;
+        let mut data = vec![0u8; block_size as usize];
+        inner.read_exact(&mut data)?;
+
+        xattr_block(&mut xattrs, &data)
             .chain_err(|| format!("loading xattr block {} @ {}", block, (block as u64 * block_size as u64)))?
     }
 
@@ -420,12 +425,8 @@ where R: io::Read + io::Seek {
     })
 }
 
-fn xattr_block<R>(xattrs: &mut HashMap<String, Vec<u8>>, inner: &mut R, block: u32, block_size: u32) -> Result<()>
-where R: io::Read + io::Seek {
-    inner.seek(io::SeekFrom::Start(block as u64 * block_size as u64))?;
+fn xattr_block(xattrs: &mut HashMap<String, Vec<u8>>, data: &[u8]) -> Result<()> {
 
-    let mut data = vec![0u8; block_size as usize];
-    inner.read_exact(&mut data)?;
 
     ensure!(XATTR_MAGIC == read_le32(&data[0x00..0x04]),
         AssumptionFailed("xattr block contained invalid magic number".to_string()));
