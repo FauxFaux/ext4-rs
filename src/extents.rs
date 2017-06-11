@@ -9,7 +9,8 @@ use ::errors::ErrorKind::*;
 
 #[derive(Debug)]
 struct Extent {
-    block: u32,
+    /// The docs call this 'block' (like everything else). I've invented a different name.
+    part: u32,
     start: u64,
     len: u16,
 }
@@ -44,25 +45,25 @@ where R: io::Read + io::Seek {
     }
 }
 
-enum FoundBlock<'a> {
+enum FoundPart<'a> {
     Actual(&'a Extent),
     Sparse(u32),
 }
 
-fn find_block(block: u32, extents: &[Extent]) -> FoundBlock {
+fn find_part(part: u32, extents: &[Extent]) -> FoundPart {
     for extent in extents {
-        if block < extent.block {
+        if part < extent.part {
             // we've gone past it
-            return FoundBlock::Sparse(extent.block - block);
+            return FoundPart::Sparse(extent.part - part);
         }
 
-        if block >= extent.block && block < extent.block + extent.len as u32 {
+        if part >= extent.part && part < extent.part + extent.len as u32 {
             // we're inside it
-            return FoundBlock::Actual(extent);
+            return FoundPart::Actual(extent);
         }
     }
 
-    FoundBlock::Sparse(std::u32::MAX)
+    FoundPart::Sparse(std::u32::MAX)
 }
 
 impl<R> io::Read for TreeReader<R>
@@ -79,9 +80,9 @@ impl<R> io::Read for TreeReader<R>
         let wanted_block = (self.pos / block_size) as u32;
         let read_of_this_block = self.pos % block_size;
 
-        match find_block(wanted_block, &self.extents) {
-            FoundBlock::Actual(extent) => {
-                let bytes_through_extent = (block_size * (wanted_block - extent.block) as u64) + read_of_this_block;
+        match find_part(wanted_block, &self.extents) {
+            FoundPart::Actual(extent) => {
+                let bytes_through_extent = (block_size * (wanted_block - extent.part) as u64) + read_of_this_block;
                 let remaining_bytes_in_extent = (extent.len as u64 * block_size) - bytes_through_extent;
                 let to_read = std::cmp::min(remaining_bytes_in_extent, buf.len() as u64) as usize;
                 let to_read = std::cmp::min(to_read as u64, self.len - self.pos) as usize;
@@ -90,7 +91,7 @@ impl<R> io::Read for TreeReader<R>
                 self.pos += read as u64;
                 Ok(read)
             }
-            FoundBlock::Sparse(max) => {
+            FoundPart::Sparse(max) => {
                 let max_bytes = max as u64 * block_size;
                 let read = std::cmp::min(max_bytes, buf.len() as u64) as usize;
                 let read = std::cmp::min(read as u64, self.len - self.pos) as usize;
@@ -150,7 +151,7 @@ where R: io::Read + io::Seek {
             let ee_start = ee_start_lo as u64 + 0x1000 * ee_start_hi as u64;
 
             extents.push(Extent {
-                block: ee_block,
+                part: ee_block,
                 start: ee_start,
                 len: ee_len,
             });
@@ -190,7 +191,7 @@ fn load_extent_tree<R>(mut inner: R, core: [u8; ::INODE_CORE_SIZE], block_size: 
 
     add_found_extents(block_size, &mut inner, &core, depth, &mut extents)?;
 
-    extents.sort_by_key(|e| e.block);
+    extents.sort_by_key(|e| e.part);
 
     Ok(extents)
 }
@@ -217,12 +218,12 @@ mod tests {
         let mut reader = TreeReader::create(all_bytes, 4, size as u64,
             vec![
                 Extent {
-                    block: 0,
+                    part: 0,
                     start: 10,
                     len: 1,
                 },
                 Extent {
-                    block: 1,
+                    part: 1,
                     start: 20,
                     len: 2,
                 }
