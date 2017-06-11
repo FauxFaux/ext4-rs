@@ -364,11 +364,13 @@ impl Inode {
                 Enhanced::SymbolicLink(if self.stat.size < INODE_CORE_SIZE as u64 {
                     ensure!(self.flags.is_empty(),
                         UnsupportedFeature(format!("symbolic links may not have flags: {:?}", self.flags)));
-                    std::str::from_utf8(&self.core[0..self.stat.size as usize]).expect("utf-8").to_string()
+                    std::str::from_utf8(&self.core[0..self.stat.size as usize])
+                        .chain_err(|| "short symlink is invalid utf-8")?.to_string()
                 } else {
                     ensure!(self.only_relevant_flag_is_extents(),
                         UnsupportedFeature(format!("symbolic links may not have non-extent flags: {:?}", self.flags)));
-                    std::str::from_utf8(&self.load_all(inner)?).expect("utf-8").to_string()
+                    std::str::from_utf8(&self.load_all(inner)?)
+                        .chain_err(|| "long symlink is invalid utf-8")?.to_string()
                 }),
             FileType::CharacterDevice => {
                 let (maj, min) = load_maj_min(self.core);
