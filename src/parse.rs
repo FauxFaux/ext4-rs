@@ -11,14 +11,13 @@ use std::collections::HashMap;
 
 use crc;
 
-use byteorder::{ReadBytesExt, LittleEndian, BigEndian};
+use byteorder::{ReadBytesExt, LittleEndian, ByteOrder};
 
 use std::io::Read;
 use std::io::Seek;
 
 const EXT4_SUPER_MAGIC: u16 = 0xEF53;
-const INODE_BASE_LEN: u32 = 128;
-const INODE_EXTRA_SUPPORTED_FIELDS_LEN: u16 = 28;
+const INODE_BASE_LEN: usize = 128;
 const XATTR_MAGIC: u32 = 0xEA020000;
 
 bitflags! {
@@ -246,6 +245,8 @@ where R: io::Read + io::Seek {
 //            Some(inner.read_u32::<LittleEndian>()?) /* Miscellaneous flags */
 //        };
 
+    // TODO: check s_checksum_type == 1 (crc32c)
+
     if has_checksums {
         inner.seek(io::SeekFrom::End(-4))?;
         let s_checksum = inner.read_u32::<LittleEndian>()?;
@@ -308,7 +309,8 @@ where R: io::Read + io::Seek {
                                                 block_size, s_inode_size)?;
 
     let uuid_checksum = if has_checksums {
-        Some(crc::crc32::checksum_castagnoli(&s_uuid))
+        // TODO: check s_checksum_seed
+        Some(ext4_style_crc32c_le(!0, &s_uuid))
     } else {
         None
     };
@@ -323,97 +325,48 @@ where R: io::Read + io::Seek {
 
 pub fn inode<R>(mut inner: R, inode: u32, inode_size: u16, block_size: u32) -> Result<::Inode>
 where R: io::Read + io::Seek {
-    let i_mode =
-        inner.read_u16::<LittleEndian>()?; /* File mode */
-    let i_uid =
-        inner.read_u16::<LittleEndian>()?; /* Low 16 bits of Owner Uid */
-    let i_size_lo =
-        inner.read_u32::<LittleEndian>()?; /* Size in bytes */
-    let i_atime =
-        inner.read_u32::<LittleEndian>()?; /* Access time */
-    let i_ctime =
-        inner.read_u32::<LittleEndian>()?; /* Inode Change time */
-    let i_mtime =
-        inner.read_u32::<LittleEndian>()?; /* Modification time */
-//  let i_dtime =
-        inner.read_u32::<LittleEndian>()?; /* Deletion Time */
-    let i_gid =
-        inner.read_u16::<LittleEndian>()?; /* Low 16 bits of Group Id */
-    let i_links_count =
-        inner.read_u16::<LittleEndian>()?; /* Links count */
-//  let i_blocks_lo =
-        inner.read_u32::<LittleEndian>()?; /* Blocks count */
-    let i_flags =
-        inner.read_u32::<LittleEndian>()?; /* File flags */
-//  let l_i_version =
-        inner.read_u32::<LittleEndian>()?;
+    let mut data = vec![0u8; inode_size as usize];
+    inner.read_exact(&mut data)?;
 
-    let mut block = [0u8; 15 * 4];
-        inner.read_exact(&mut block)?; /* Pointers to blocks */
+    // generated from inode.spec by structs.py
+    let i_mode            = read_le16(&data[0x00..0x02]); /* File mode */
+    let i_uid             = read_le16(&data[0x02..0x04]); /* Low 16 bits of Owner Uid */
+    let i_size_lo         = read_le32(&data[0x04..0x08]); /* Size in bytes */
+    let i_atime           = read_le32(&data[0x08..0x0C]); /* Access time */
+    let i_ctime           = read_le32(&data[0x0C..0x10]); /* Inode Change time */
+    let i_mtime           = read_le32(&data[0x10..0x14]); /* Modification time */
+//    let i_dtime           = read_le32(&data[0x14..0x18]); /* Deletion Time */
+    let i_gid             = read_le16(&data[0x18..0x1A]); /* Low 16 bits of Group Id */
+    let i_links_count     = read_le16(&data[0x1A..0x1C]); /* Links count */
+//    let i_blocks_lo       = read_le32(&data[0x1C..0x20]); /* Blocks count */
+    let i_flags           = read_le32(&data[0x20..0x24]); /* File flags */
+//    let l_i_version       = read_le32(&data[0x24..0x28]);
+    let i_block           =           &data[0x28..0x64] ; /* Pointers to blocks */
+//    let i_generation      = read_le32(&data[0x64..0x68]); /* File version (for NFS) */
+    let i_file_acl_lo     = read_le32(&data[0x68..0x6C]); /* File ACL */
+    let i_size_high       = read_le32(&data[0x6C..0x70]);
+//    let i_obso_faddr      = read_le32(&data[0x70..0x74]); /* Obsoleted fragment address */
+//    let l_i_blocks_high   = read_le16(&data[0x74..0x76]); /* were l_i_reserved1 */
+    let l_i_file_acl_high = read_le16(&data[0x76..0x78]);
+    let l_i_uid_high      = read_le16(&data[0x78..0x7A]); /* these 2 fields */
+    let l_i_gid_high      = read_le16(&data[0x7A..0x7C]); /* were reserved2[0] */
+    let l_i_checksum_lo   = read_le16(&data[0x7C..0x7E]); /* crc32c(uuid+inum+inode) LE */
+//    let l_i_reserved      = read_le16(&data[0x7E..0x80]);
 
-//  let i_generation =
-        inner.read_u32::<LittleEndian>()?; /* File version (for NFS) */
-    let i_file_acl_lo =
-        inner.read_u32::<LittleEndian>()?; /* File ACL */
-    let i_size_high =
-        inner.read_u32::<LittleEndian>()?;
-//  let i_obso_faddr =
-        inner.read_u32::<LittleEndian>()?; /* Obsoleted fragment address */
-//  let l_i_blocks_high =
-        inner.read_u16::<LittleEndian>()?;
-    let l_i_file_acl_high =
-        inner.read_u16::<LittleEndian>()?;
-    let l_i_uid_high =
-        inner.read_u16::<LittleEndian>()?;
-    let l_i_gid_high =
-        inner.read_u16::<LittleEndian>()?;
-//  let l_i_checksum_lo =
-        inner.read_u16::<LittleEndian>()?; /* crc32c(uuid+inum+inode) LE */
-//  let l_i_reserved =
-        inner.read_u16::<LittleEndian>()?;
-    let i_extra_isize =
-        inner.read_u16::<LittleEndian>()?;
+    let i_extra_isize     = if data.len() < 0x82 { 0 } else { read_le16(&data[0x80..0x82]) };
 
-//  let i_checksum_hi =
-        if i_extra_isize < 2 { None } else {
-            Some(inner.read_u16::<BigEndian>()?) /* crc32c(uuid+inum+inode) BE */
-        };
-    let i_ctime_extra =
-        if i_extra_isize < 2 + 4 { None } else {
-            Some(inner.read_u32::<LittleEndian>()?) /* extra Change time      (nsec << 2 | epoch) */
-        };
-    let i_mtime_extra =
-        if i_extra_isize < 2 + 4 + 4 { None } else {
-            Some(inner.read_u32::<LittleEndian>()?) /* extra Modification time(nsec << 2 | epoch) */
-        };
-    let i_atime_extra =
-        if i_extra_isize < 2 + 4 + 4 + 4 { None } else {
-            Some(inner.read_u32::<LittleEndian>()?) /* extra Access time      (nsec << 2 | epoch) */
-        };
-    let i_crtime =
-        if i_extra_isize < 2 + 4 + 4 + 4 + 4 { None } else {
-            Some(inner.read_u32::<LittleEndian>()?) /* File Creation time */
-        };
-    let i_crtime_extra =
-        if i_extra_isize < 2 + 4 + 4 + 4 + 4 + 4 { None } else {
-            Some(inner.read_u32::<LittleEndian>()?) /* extra FileCreationtime (nsec << 2 | epoch) */
-        };
-//  let i_version_hi =
-        if i_extra_isize < 2 + 4 + 4 + 4 + 4 + 4 + 4 { None } else {
-           Some(inner.read_u32::<LittleEndian>()?) /* high 32 bits for 64-bit version */
-        };
-//  let i_projid =
-        if i_extra_isize < 2 + 4 + 4 + 4 + 4 + 4 + 4 + 4 { None } else {
-            Some(inner.read_u32::<LittleEndian>()?) /* Project ID */
-        };
-
-    if i_extra_isize > INODE_EXTRA_SUPPORTED_FIELDS_LEN {
-        // skip over any extra fields we don't support
-        inner.seek(io::SeekFrom::Current((i_extra_isize - INODE_EXTRA_SUPPORTED_FIELDS_LEN) as i64))?;
-    }
+    let i_checksum_hi     = if i_extra_isize <  2 { None } else { Some(read_le16(&data[0x82..0x84])) }; /* crc32c(uuid+inum+inode) BE */
+    let i_ctime_extra     = if i_extra_isize <  6 { None } else { Some(read_le32(&data[0x84..0x88])) }; /* extra Change time      (nsec << 2 | epoch) */
+    let i_mtime_extra     = if i_extra_isize < 10 { None } else { Some(read_le32(&data[0x88..0x8C])) }; /* extra Modification time(nsec << 2 | epoch) */
+    let i_atime_extra     = if i_extra_isize < 14 { None } else { Some(read_le32(&data[0x8C..0x90])) }; /* extra Access time      (nsec << 2 | epoch) */
+    let i_crtime          = if i_extra_isize < 18 { None } else { Some(read_le32(&data[0x90..0x94])) }; /* File Creation time */
+    let i_crtime_extra    = if i_extra_isize < 22 { None } else { Some(read_le32(&data[0x94..0x98])) }; /* extra FileCreationtime (nsec << 2 | epoch) */
+//    let i_version_hi      = if i_extra_isize < 26 { None } else { Some(read_le32(&data[0x98..0x9C])) }; /* high 32 bits for 64-bit version */
+//    let i_projid          = if i_extra_isize < 30 { None } else { Some(read_le32(&data[0x9C..0xA0])) }; /* Project ID */
 
     // extended attributes after the inode
-    ensure!(INODE_BASE_LEN + i_extra_isize as u32 + 4 >= inode_size as u32 || XATTR_MAGIC != inner.read_u32::<LittleEndian>()?,
+    let inode_end = INODE_BASE_LEN + i_extra_isize as usize;
+    ensure!(inode_end + 4 >= inode_size as usize || XATTR_MAGIC != read_le32(&data[inode_end..(inode_end + 4)]),
         UnsupportedFeature("xattrs in inode".to_string()));
 
     let xattrs = if 0 != i_file_acl_lo || 0 != l_i_file_acl_high {
@@ -449,6 +402,9 @@ where R: io::Read + io::Seek {
         link_count: i_links_count,
         xattrs,
     };
+
+    let mut block = [0u8; 60];
+    block.clone_from_slice(i_block);
 
     Ok(::Inode {
         stat,
@@ -569,6 +525,16 @@ where R: io::Read + io::Seek {
 /// This is what the function in the ext4 code does, based on its results. I'm so sorry.
 fn ext4_style_crc32c_le(seed: u32, buf: &[u8]) -> u32 {
     crc::crc32::update(seed ^ (!0), &crc::crc32::CASTAGNOLI_TABLE, buf) ^ (!0u32)
+}
+
+#[inline]
+fn read_le16(from: &[u8]) -> u16 {
+    LittleEndian::read_u16(from)
+}
+
+#[inline]
+fn read_le32(from: &[u8]) -> u32 {
+    LittleEndian::read_u32(from)
 }
 
 #[cfg(test)]
