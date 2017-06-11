@@ -1,3 +1,4 @@
+use std;
 use std::io;
 
 use ::Time;
@@ -371,7 +372,8 @@ where R: io::Read + io::Seek {
 
     let xattrs = if 0 != i_file_acl_lo || 0 != l_i_file_acl_high {
         let block = i_file_acl_lo as u32 | ((l_i_file_acl_high as u32) << 16);
-        xattr_block(&mut inner, block, block_size)?
+        xattr_block(&mut inner, block, block_size)
+            .chain_err(|| format!("loading xattr block {} @ {}", block, (block as u64 * block_size as u64)))?
     } else {
         HashMap::new()
     };
@@ -416,64 +418,46 @@ where R: io::Read + io::Seek {
     })
 }
 
-#[derive(Debug)]
-struct XattrRecord {
-    name: String,
-    disk_offset: u64,
-    len: u32,
-}
-
 fn xattr_block<R>(inner: &mut R, block: u32, block_size: u32) -> Result<HashMap<String, Vec<u8>>>
 where R: io::Read + io::Seek {
     inner.seek(io::SeekFrom::Start(block as u64 * block_size as u64))?;
 
-    ensure!(XATTR_MAGIC == inner.read_u32::<LittleEndian>()?,
+    let mut data = vec![0u8; block_size as usize];
+    inner.read_exact(&mut data)?;
+
+    ensure!(XATTR_MAGIC == read_le32(&data[0x00..0x04]),
         AssumptionFailed("xattr block contained invalid magic number".to_string()));
 
-//  let x_refcount =
-        inner.read_u32::<LittleEndian>()?;
-//  let x_blocks_used =
-        inner.read_u32::<LittleEndian>()?;
-//  let x_hash =
-        inner.read_u32::<LittleEndian>()?;
-//  let x_checksum =
-        inner.read_u32::<LittleEndian>()?;
-//  let x_reserved_1 =
-        inner.read_u32::<LittleEndian>()?;
-//  let x_reserved_2 =
-        inner.read_u32::<LittleEndian>()?;
+//  let x_refcount    = read_le32(&data[0x04..0x08]);
+    let x_blocks_used = read_le32(&data[0x08..0x0C]);
+    let x_hash        = read_le32(&data[0x0C..0x10]);
+    let x_checksum    = read_le32(&data[0x10..0x14]);
+    // [some reserved fields]
 
-    // TODO: this varies from The Holy Wiki; there is
-    // no mentioned extra alignment here. The alignment
-    // is nice; it brings us up to a 2x16 byte header.
+    ensure!(1 == x_blocks_used,
+        UnsupportedFeature(format!("must have exactly one xattr block, not {}", x_blocks_used)));
 
-//  let x_reserved_3 =
-        inner.read_u32::<LittleEndian>()?;
+    let mut reading = &data[0x20..];
+    let block_offset_start = &data[..];
 
-    // TODO: we should almost certainly be validating the blocks_used.
-    let mut records = Vec::new();
+    let mut xattrs = HashMap::new();
 
     loop {
-        let e_name_len =
-            inner.read_u8()?;
-        let e_name_prefix_magic =
-            inner.read_u8()?;
-        let e_value_offset =
-            inner.read_u16::<LittleEndian>()?;
-        let e_block =
-            inner.read_u32::<LittleEndian>()?;
+        let e_name_len          = reading[0x00];
+        let e_name_prefix_magic = reading[0x01];
+        let e_value_offset      = read_le16(&reading[0x02..0x04]);
+        let e_block             = read_le32(&reading[0x04..0x08]);
 
         if 0 == e_name_len && 0 == e_name_prefix_magic && 0 == e_value_offset && 0 == e_block {
             break;
         }
 
-        let e_value_size =
-            inner.read_u32::<LittleEndian>()?;
-//        let e_hash =
-            inner.read_u32::<LittleEndian>()?;
+        let e_value_size        = read_le32(&reading[0x08..0x0C]);
+        let e_hash              = read_le32(&reading[0x0C..0x10]);
 
-        let mut name_suffix = vec![0u8; e_name_len as usize];
-        inner.read_exact(&mut name_suffix)?;
+        let end_of_name = 0x10 + e_name_len as usize;
+
+        let name_suffix         = &reading[0x10..end_of_name];
 
         let name = format!("{}{}",
             match e_name_prefix_magic {
@@ -486,37 +470,19 @@ where R: io::Read + io::Seek {
                 7 => "system.",
                 _ => bail!(UnsupportedFeature(format!("unsupported name prefix encoding: {}", e_name_prefix_magic))),
             },
-            String::from_utf8(name_suffix).chain_err(|| "name is invalid utf-8")?
+            std::str::from_utf8(name_suffix).chain_err(|| "name is invalid utf-8")?
         );
 
-        let disk_offset = if 0 == e_block {
-            // TODO: maybe.. track this some other way?
-            let current = inner.seek(io::SeekFrom::Current(0))?;
-            current / block_size as u64
-        } else {
-            e_block as u64
-        } * block_size as u64 + e_value_offset as u64;
+        let start = e_value_offset as usize;
+        let end = start + e_value_size as usize;
 
-        records.push(XattrRecord {
-            name,
-            disk_offset,
-            len: e_value_size,
-        });
+        ensure!(start <= block_offset_start.len() && end <= block_offset_start.len(),
+            AssumptionFailed(format!("xattr value out of range: {}-{} > {}", start, end, block_offset_start.len())));
 
-        let alignment_failure = 4 - (e_name_len as usize % 4);
-        if alignment_failure < 4 {
-            let mut realign = vec![0u8; alignment_failure];
-            inner.read_exact(&mut realign)?;
-        }
-    }
+        xattrs.insert(name, block_offset_start[start..end].to_vec());
 
-    let mut xattrs = HashMap::with_capacity(records.len());
-
-    for record in records {
-        inner.seek(io::SeekFrom::Start(record.disk_offset))?;
-        let mut value = vec![0u8; record.len as usize];
-        inner.read_exact(&mut value)?;
-        xattrs.insert(record.name, value);
+        let next_record = end_of_name + ((4 - (end_of_name % 4)) % 4);
+        reading = &reading[next_record..];
     }
 
     Ok(xattrs)
