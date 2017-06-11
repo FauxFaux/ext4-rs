@@ -414,7 +414,7 @@ impl Inode {
                     inode: child_inode,
                     name: name.to_string(),
                     file_type: FileType::from_dir_hint(file_type)
-                        .expect("valid file type"),
+                        .ok_or_else(|| UnsupportedFeature(format!("unexpected file type in directory: {}", file_type)))?,
                 });
             }
 
