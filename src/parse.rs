@@ -331,6 +331,7 @@ pub struct ParsedInode {
     pub stat: ::Stat,
     pub flags: ::InodeFlags,
     pub core: [u8; ::INODE_CORE_SIZE],
+    pub checksum_prefix: Option<u32>,
 }
 
 pub fn inode<F>(mut data: Vec<u8>, load_block: F, uuid_checksum: Option<u32>, number: u32) -> Result<ParsedInode>
@@ -382,6 +383,8 @@ where F: FnOnce(u64) -> Result<Vec<u8>> {
 //    let i_version_hi      = if i_extra_isize < 26 { None } else { Some(read_le32(&data[0x98..0x9C])) }; /* high 32 bits for 64-bit version */
 //    let i_projid          = if i_extra_isize < 30 { None } else { Some(read_le32(&data[0x9C..0xA0])) }; /* Project ID */
 
+    let mut checksum_prefix = None;
+
     if let Some(uuid_checksum) = uuid_checksum {
         data[0x7C] = 0;
         data[0x7D] = 0;
@@ -389,14 +392,14 @@ where F: FnOnce(u64) -> Result<Vec<u8>> {
         let mut bytes = [0u8; 8];
         LittleEndian::write_u32(&mut bytes[0..4], number);
         LittleEndian::write_u32(&mut bytes[4..8], i_generation);
-        let base = ext4_style_crc32c_le(uuid_checksum, &bytes);
+        checksum_prefix = Some(ext4_style_crc32c_le(uuid_checksum, &bytes));
 
         if i_checksum_hi.is_some() {
             data[0x82] = 0;
             data[0x83] = 0;
         }
 
-        let computed = ext4_style_crc32c_le(base, &data);
+        let computed = ext4_style_crc32c_le(checksum_prefix.unwrap(), &data);
 
         if let Some(high) = i_checksum_hi {
             let expected = (l_i_checksum_lo as u32) | ((high as u32) << 16);
@@ -458,6 +461,7 @@ where F: FnOnce(u64) -> Result<Vec<u8>> {
         flags: ::InodeFlags::from_bits(i_flags)
             .ok_or_else(|| UnsupportedFeature(format!("unrecognised inode flags: {:b}", i_flags)))?,
         core: i_block,
+        checksum_prefix,
     })
 }
 
@@ -553,7 +557,7 @@ fn read_xattrs(xattrs: &mut HashMap<String, Vec<u8>>, mut reading: &[u8], block_
 }
 
 /// This is what the function in the ext4 code does, based on its results. I'm so sorry.
-fn ext4_style_crc32c_le(seed: u32, buf: &[u8]) -> u32 {
+pub fn ext4_style_crc32c_le(seed: u32, buf: &[u8]) -> u32 {
     crc::crc32::update(seed ^ (!0), &crc::crc32::CASTAGNOLI_TABLE, buf) ^ (!0u32)
 }
 

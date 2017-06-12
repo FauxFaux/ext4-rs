@@ -13,7 +13,6 @@ All basic file types are represented: files, directories, symlinks, char and blo
 
 ### Practical problems
 
- * No support for checksums, so might read total nonsense as a valid volume.
  * No support for extended flags (e.g. `immutable`, `append-only`).
  * Probably contains overflows and fencepost errors, many of which Rust will translate to
      panics for you. At least, in debug mode.

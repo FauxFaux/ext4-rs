@@ -188,6 +188,8 @@ pub struct Inode {
     pub number: u32,
     flags: InodeFlags,
 
+    checksum_prefix: Option<u32>,
+
     /// The other implementations call this the inode's "block", which is so unbelievably overloaded.
     /// I made up a new name.
     core: [u8; INODE_CORE_SIZE],
@@ -234,6 +236,7 @@ where R: io::Read + io::Seek {
             stat: parsed.stat,
             flags: parsed.flags,
             core: parsed.core,
+            checksum_prefix: parsed.checksum_prefix,
             block_size: self.groups.block_size,
         })
     }
@@ -420,7 +423,6 @@ impl Inode {
             let file_type = cursor.read_u8()?;
             let mut name = vec![0u8; name_len as usize];
             cursor.read_exact(&mut name)?;
-            cursor.seek(io::SeekFrom::Current(rec_len as i64 - name_len as i64 - 4 - 2 - 2))?;
             if 0 != child_inode {
                 let name = std::str::from_utf8(&name).map_err(|e|
                     parse_error(format!("invalid utf-8 in file name: {}", e)))?;
@@ -431,12 +433,31 @@ impl Inode {
                     file_type: FileType::from_dir_hint(file_type)
                         .ok_or_else(|| UnsupportedFeature(format!("unexpected file type in directory: {}", file_type)))?,
                 });
+
+            } else if 12 == rec_len && 0 == name_len && 0xDE == file_type {
+                // Magic entry representing the end of the list
+
+                if let Some(checksum_prefix) = self.checksum_prefix {
+                    let expected = cursor.read_u32::<LittleEndian>()?;
+                    let computed = parse::ext4_style_crc32c_le(checksum_prefix, &cursor.into_inner()[0..read]);
+                    ensure!(expected == computed,
+                        AssumptionFailed(format!("directory checksum mismatch: on-disk: {:08x}, computed: {:08x}",
+                                expected, computed)));
+                }
+
+                break;
             }
+
+            cursor.seek(io::SeekFrom::Current(rec_len as i64 - name_len as i64 - 4 - 2 - 2))?;
 
             read += rec_len as usize;
             if read >= total_len {
                 ensure!(read == total_len,
                     AssumptionFailed(format!("short read, {} != {}", read, total_len)));
+
+                ensure!(self.checksum_prefix.is_none(),
+                    AssumptionFailed("directory checksums are enabled but checksum record not found".to_string()));
+
                 break;
             }
         }
