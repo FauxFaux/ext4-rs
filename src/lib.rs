@@ -375,7 +375,7 @@ impl Inode {
 
     fn reader<R>(&self, inner: R) -> Result<TreeReader<R>>
     where R: io::Read + io::Seek {
-        TreeReader::new(inner, self.block_size, self.stat.size, self.core)
+        TreeReader::new(inner, self.block_size, self.stat.size, self.core, self.checksum_prefix)
             .chain_err(|| format!("opening inode <{}>", self.number))
     }
 

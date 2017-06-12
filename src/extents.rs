@@ -25,8 +25,17 @@ pub struct TreeReader<R> {
 
 impl<R> TreeReader<R>
 where R: io::Read + io::Seek {
-    pub fn new(mut inner: R, block_size: u32, size: u64, core: [u8; ::INODE_CORE_SIZE]) -> Result<TreeReader<R>> {
-        let extents = load_extent_tree(&mut |block| ::load_disc_bytes(&mut inner, block_size, block), core)?;
+    pub fn new(
+        mut inner: R,
+        block_size: u32,
+        size: u64,
+        core: [u8; ::INODE_CORE_SIZE],
+        checksum_prefix: Option<u32>)
+    -> Result<TreeReader<R>> {
+        let extents = load_extent_tree(
+            &mut |block| ::load_disc_bytes(&mut inner, block_size, block),
+            core,
+            checksum_prefix)?;
         TreeReader::create(inner, block_size, size, extents)
     }
 
@@ -126,7 +135,9 @@ fn add_found_extents<F>(
     load_block: &mut F,
     data: &[u8],
     expected_depth: u16,
-    extents: &mut Vec<Extent>) -> Result<()>
+    extents: &mut Vec<Extent>,
+    checksum_prefix: Option<u32>,
+    first_level: bool) -> Result<()>
 where F: FnMut(u64) -> Result<Vec<u8>> {
 
     ensure!(0x0a == data[0] && 0xf3 == data[1],
@@ -139,6 +150,15 @@ where F: FnMut(u64) -> Result<Vec<u8>> {
 
     ensure!(expected_depth == depth,
         AssumptionFailed(format!("depth incorrect: {} != {}", expected_depth, depth)));
+
+    if !first_level && checksum_prefix.is_some() {
+        let end_of_entries = data.len() - 4;
+        let on_disc = read_le32(&data[end_of_entries..(end_of_entries + 4)]);
+        let computed = ::parse::ext4_style_crc32c_le(checksum_prefix.unwrap(), &data[..end_of_entries]);
+
+        ensure!(computed == on_disc,
+                AssumptionFailed(format!("extent checksum mismatch: {:08x} != {:08x} @ {}", on_disc, computed, data.len())));
+    }
 
     if 0 == depth {
         for en in 0..extent_entries {
@@ -166,13 +186,13 @@ where F: FnMut(u64) -> Result<Vec<u8>> {
         let ei_leaf_hi = read_le16(&extent_idx[8..]);
         let ee_leaf: u64 = ei_leaf_lo as u64 + ((ei_leaf_hi as u64) << 32);
         let data = load_block(ee_leaf)?;
-        add_found_extents(load_block, &data, depth - 1, extents)?;
+        add_found_extents(load_block, &data, depth - 1, extents, checksum_prefix, false)?;
     }
 
     Ok(())
 }
 
-fn load_extent_tree<F>(load_block: &mut F, core: [u8; ::INODE_CORE_SIZE]) -> Result<Vec<Extent>>
+fn load_extent_tree<F>(load_block: &mut F, core: [u8; ::INODE_CORE_SIZE], checksum_prefix: Option<u32>) -> Result<Vec<Extent>>
 where F: FnMut(u64) -> Result<Vec<u8>> {
     ensure!(0x0a == core[0] && 0xf3 == core[1],
         AssumptionFailed("invalid extent magic".to_string()));
@@ -186,7 +206,7 @@ where F: FnMut(u64) -> Result<Vec<u8>> {
 
     let mut extents = Vec::with_capacity(extent_entries as usize + depth as usize * 200);
 
-    add_found_extents(load_block, &core, depth, &mut extents)?;
+    add_found_extents(load_block, &core, depth, &mut extents, checksum_prefix, true)?;
 
     extents.sort_by_key(|e| e.part);
 
