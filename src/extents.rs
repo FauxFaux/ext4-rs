@@ -1,8 +1,8 @@
 use std;
 use std::io;
 
-use ::as_u16;
-use ::as_u32;
+use ::read_le16;
+use ::read_le32;
 
 use ::errors::Result;
 use ::errors::ErrorKind::*;
@@ -132,9 +132,9 @@ where F: FnMut(u64) -> Result<Vec<u8>> {
     ensure!(0x0a == data[0] && 0xf3 == data[1],
         AssumptionFailed("invalid extent magic".to_string()));
 
-    let extent_entries = as_u16(&data[2..]);
+    let extent_entries = read_le16(&data[2..]);
     // 4..: max; doesn't seem to be useful during read
-    let depth = as_u16(&data[6..]);
+    let depth = read_le16(&data[6..]);
     // 8..: generation, not used in standard ext4
 
     ensure!(expected_depth == depth,
@@ -143,10 +143,10 @@ where F: FnMut(u64) -> Result<Vec<u8>> {
     if 0 == depth {
         for en in 0..extent_entries {
             let raw_extent = &data[12 + en as usize * 12..];
-            let ee_block = as_u32(raw_extent);
-            let ee_len = as_u16(&raw_extent[4..]);
-            let ee_start_hi = as_u16(&raw_extent[6..]);
-            let ee_start_lo = as_u32(&raw_extent[8..]);
+            let ee_block = read_le32(raw_extent);
+            let ee_len = read_le16(&raw_extent[4..]);
+            let ee_start_hi = read_le16(&raw_extent[6..]);
+            let ee_start_lo = read_le32(&raw_extent[8..]);
             let ee_start = ee_start_lo as u64 + 0x1000 * ee_start_hi as u64;
 
             extents.push(Extent {
@@ -162,8 +162,8 @@ where F: FnMut(u64) -> Result<Vec<u8>> {
     for en in 0..extent_entries {
         let extent_idx = &data[12 + en as usize * 12..];
         //            let ei_block = as_u32(extent_idx);
-        let ei_leaf_lo = as_u32(&extent_idx[4..]);
-        let ei_leaf_hi = as_u16(&extent_idx[8..]);
+        let ei_leaf_lo = read_le32(&extent_idx[4..]);
+        let ei_leaf_hi = read_le16(&extent_idx[8..]);
         let ee_leaf: u64 = ei_leaf_lo as u64 + ((ei_leaf_hi as u64) << 32);
         let data = load_block(ee_leaf)?;
         add_found_extents(load_block, &data, depth - 1, extents)?;
@@ -177,9 +177,9 @@ where F: FnMut(u64) -> Result<Vec<u8>> {
     ensure!(0x0a == core[0] && 0xf3 == core[1],
         AssumptionFailed("invalid extent magic".to_string()));
 
-    let extent_entries = as_u16(&core[2..]);
+    let extent_entries = read_le16(&core[2..]);
     // 4..: max; doesn't seem to be useful during read
-    let depth = as_u16(&core[6..]);
+    let depth = read_le16(&core[6..]);
 
     ensure!(depth <= 5,
         AssumptionFailed(format!("initial depth too high: {}", depth)));

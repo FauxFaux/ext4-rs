@@ -12,7 +12,7 @@ use std::io::Result;
 use std::io::Seek;
 use std::io::SeekFrom;
 
-use ::as_u32;
+use ::read_le32;
 
 /// An entry in the partition table.
 #[derive(Debug)]
@@ -115,8 +115,8 @@ pub fn parse_partition_table(sector: &[u8], sector_size: u16) -> Result<Vec<Part
             continue;
         }
 
-        let first_byte = as_u32(&partition[8..]) as u64 * sector_size as u64;
-        let len = first_byte + as_u32(&partition[12..]) as u64 * sector_size as u64;
+        let first_byte = read_le32(&partition[8..]) as u64 * sector_size as u64;
+        let len = first_byte + read_le32(&partition[12..]) as u64 * sector_size as u64;
 
         partitions.push(Partition {
             id: entry_id,

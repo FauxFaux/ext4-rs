@@ -475,12 +475,16 @@ fn load_maj_min(core: [u8; INODE_CORE_SIZE]) -> (u16, u32) {
     }
 }
 
-fn as_u16(buf: &[u8]) -> u16 {
-    buf[0] as u16 + buf[1] as u16 * 0x100
+#[inline]
+fn read_le16(from: &[u8]) -> u16 {
+    use byteorder::ByteOrder;
+    LittleEndian::read_u16(from)
 }
 
-fn as_u32(buf: &[u8]) -> u32 {
-    as_u16(buf) as u32 + as_u16(&buf[2..]) as u32 * 0x10000
+#[inline]
+fn read_le32(from: &[u8]) -> u32 {
+    use byteorder::ByteOrder;
+    LittleEndian::read_u32(from)
 }
 
 fn parse_error(msg: String) -> Error {
