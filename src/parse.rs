@@ -422,7 +422,7 @@ where F: FnOnce(u64) -> Result<Vec<u8>> {
     if 0 != i_file_acl_lo || 0 != l_i_file_acl_high {
         let block = i_file_acl_lo as u64 | ((l_i_file_acl_high as u64) << 32);
 
-        xattr_block(&mut xattrs, &load_block(block)?)
+        xattr_block(&mut xattrs, load_block(block)?, uuid_checksum, block)
             .chain_err(|| format!("loading xattr block {}", block))?
     }
 
@@ -461,7 +461,8 @@ where F: FnOnce(u64) -> Result<Vec<u8>> {
     })
 }
 
-fn xattr_block(xattrs: &mut HashMap<String, Vec<u8>>, data: &[u8]) -> Result<()> {
+fn xattr_block(xattrs: &mut HashMap<String, Vec<u8>>, mut data: Vec<u8>,
+               uuid_checksum: Option<u32>, block_number: u64) -> Result<()> {
 
     ensure!(data.len() > 0x20,
         AssumptionFailed("xattr block is way too short".to_string()));
@@ -471,9 +472,25 @@ fn xattr_block(xattrs: &mut HashMap<String, Vec<u8>>, data: &[u8]) -> Result<()>
 
 //  let x_refcount    = read_le32(&data[0x04..0x08]);
     let x_blocks_used = read_le32(&data[0x08..0x0C]);
-    let x_hash        = read_le32(&data[0x0C..0x10]);
+//    let x_hash        = read_le32(&data[0x0C..0x10]);
     let x_checksum    = read_le32(&data[0x10..0x14]);
     // [some reserved fields]
+
+    if let Some(uuid_checksum) = uuid_checksum {
+        data[0x10] = 0;
+        data[0x11] = 0;
+        data[0x12] = 0;
+        data[0x13] = 0;
+
+        let mut bytes = [0u8; 8];
+        LittleEndian::write_u64(&mut bytes[0..8], block_number);
+
+        let base = ext4_style_crc32c_le(uuid_checksum, &bytes);
+        let computed = ext4_style_crc32c_le(base, &data);
+        ensure!(x_checksum == computed,
+            AssumptionFailed(format!("xattr block checksum invalid: on-disk: {:08x}, computed: {:08x}",
+                x_checksum, computed)));
+    }
 
     ensure!(1 == x_blocks_used,
         UnsupportedFeature(format!("must have exactly one xattr block, not {}", x_blocks_used)));
@@ -497,7 +514,7 @@ fn read_xattrs(xattrs: &mut HashMap<String, Vec<u8>>, mut reading: &[u8], block_
         }
 
         let e_value_size        = read_le32(&reading[0x08..0x0C]);
-        let e_hash              = read_le32(&reading[0x0C..0x10]);
+//        let e_hash              = read_le32(&reading[0x0C..0x10]);
 
         let end_of_name = 0x10 + e_name_len as usize;
 
