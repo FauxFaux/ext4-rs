@@ -225,7 +225,8 @@ where R: io::Read + io::Seek {
         let data = self.load_inode_bytes(inode)
             .chain_err(|| format!("failed to find inode <{}> on disc", inode))?;
 
-        let parsed = parse::inode(&data, |block| self.load_disc_bytes(block))
+        let uuid_checksum = self.uuid_checksum;
+        let parsed = parse::inode(data, |block| self.load_disc_bytes(block), uuid_checksum, inode)
             .chain_err(|| format!("failed to parse inode <{}>", inode))?;
 
         Ok(Inode {

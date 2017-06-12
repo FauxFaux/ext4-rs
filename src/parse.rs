@@ -330,7 +330,7 @@ pub struct ParsedInode {
     pub core: [u8; ::INODE_CORE_SIZE],
 }
 
-pub fn inode<F>(data: &[u8], load_block: F) -> Result<ParsedInode>
+pub fn inode<F>(mut data: Vec<u8>, load_block: F, uuid_checksum: Option<u32>, number: u32) -> Result<ParsedInode>
 where F: FnOnce(u64) -> Result<Vec<u8>> {
 
     ensure!(data.len() >= INODE_BASE_LEN,
@@ -349,8 +349,11 @@ where F: FnOnce(u64) -> Result<Vec<u8>> {
 //    let i_blocks_lo       = read_le32(&data[0x1C..0x20]); /* Blocks count */
     let i_flags           = read_le32(&data[0x20..0x24]); /* File flags */
 //    let l_i_version       = read_le32(&data[0x24..0x28]);
-    let i_block           =           &data[0x28..0x64] ; /* Pointers to blocks */
-//    let i_generation      = read_le32(&data[0x64..0x68]); /* File version (for NFS) */
+
+    let mut i_block = [0u8; ::INODE_CORE_SIZE];
+    i_block.clone_from_slice(&data[0x28..0x64]);   /* Pointers to blocks */
+
+    let i_generation      = read_le32(&data[0x64..0x68]); /* File version (for NFS) */
     let i_file_acl_lo     = read_le32(&data[0x68..0x6C]); /* File ACL */
     let i_size_high       = read_le32(&data[0x6C..0x70]);
 //    let i_obso_faddr      = read_le32(&data[0x70..0x74]); /* Obsoleted fragment address */
@@ -376,6 +379,35 @@ where F: FnOnce(u64) -> Result<Vec<u8>> {
 //    let i_version_hi      = if i_extra_isize < 26 { None } else { Some(read_le32(&data[0x98..0x9C])) }; /* high 32 bits for 64-bit version */
 //    let i_projid          = if i_extra_isize < 30 { None } else { Some(read_le32(&data[0x9C..0xA0])) }; /* Project ID */
 
+    if let Some(uuid_checksum) = uuid_checksum {
+        data[0x7C] = 0;
+        data[0x7D] = 0;
+
+        let mut bytes = [0u8; 8];
+        LittleEndian::write_u32(&mut bytes[0..4], number);
+        LittleEndian::write_u32(&mut bytes[4..8], i_generation);
+        let base = ext4_style_crc32c_le(uuid_checksum, &bytes);
+
+        if let Some(_) = i_checksum_hi {
+            data[0x82] = 0;
+            data[0x83] = 0;
+        }
+
+        let computed = ext4_style_crc32c_le(base, &data);
+
+        if let Some(high) = i_checksum_hi {
+            let expected = (l_i_checksum_lo as u32) | ((high as u32) << 16);
+            ensure!(expected == computed,
+                AssumptionFailed(format!("full checksum mismatch: on-disc: {:08x} computed: {:08x}",
+                    expected, computed)));
+        } else {
+            let short_computed = computed as u16;
+            ensure!(l_i_checksum_lo == short_computed,
+                AssumptionFailed(format!("short checksum mismatch: on-disc: {:04x} computed: {:04x}",
+                    l_i_checksum_lo, short_computed)));
+        }
+    }
+
     // extended attributes after the inode
     let mut xattrs = HashMap::new();
 
@@ -388,7 +420,7 @@ where F: FnOnce(u64) -> Result<Vec<u8>> {
         let block = i_file_acl_lo as u64 | ((l_i_file_acl_high as u64) << 32);
 
         xattr_block(&mut xattrs, &load_block(block)?)
-            .chain_err(|| format!("loading xattr core {}", block))?
+            .chain_err(|| format!("loading xattr block {}", block))?
     }
 
     let stat = ::Stat {
@@ -418,14 +450,11 @@ where F: FnOnce(u64) -> Result<Vec<u8>> {
         xattrs,
     };
 
-    let mut core = [0u8; ::INODE_CORE_SIZE];
-    core.clone_from_slice(i_block);
-
     Ok(ParsedInode {
         stat,
         flags: ::InodeFlags::from_bits(i_flags)
             .ok_or_else(|| UnsupportedFeature(format!("unrecognised inode flags: {:b}", i_flags)))?,
-        core,
+        core: i_block,
     })
 }
 
