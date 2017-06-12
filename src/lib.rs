@@ -213,13 +213,34 @@ pub struct Time {
     pub nanos: Option<u32>,
 }
 
+#[derive(Debug, PartialEq)]
+pub enum Checksums {
+    Required,
+    Enabled,
+}
+
+impl Default for Checksums {
+    fn default() -> Self {
+        Checksums::Required
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct Options {
+    checksums: Checksums,
+}
+
 impl<R> SuperBlock<R>
 where R: io::Read + io::Seek {
 
     /// Open a filesystem, and load its superblock.
-    pub fn new(mut inner: R) -> Result<SuperBlock<R>> {
+    pub fn new(inner: R) -> Result<SuperBlock<R>> {
+        SuperBlock::new_with_options(inner, &Options::default())
+    }
+
+    pub fn new_with_options(mut inner: R, options: &Options) -> Result<SuperBlock<R>> {
         inner.seek(io::SeekFrom::Start(1024))?;
-        parse::superblock(inner).chain_err(|| "failed to parse superblock")
+        parse::superblock(inner, options).chain_err(|| "failed to parse superblock")
     }
 
     /// Load a filesystem entry by inode number.

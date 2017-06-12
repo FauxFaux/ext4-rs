@@ -74,7 +74,7 @@ bitflags! {
     }
 }
 
-pub fn superblock<R>(mut reader: R) -> Result<::SuperBlock<R>>
+pub fn superblock<R>(mut reader: R, options: &::Options) -> Result<::SuperBlock<R>>
 where R: io::Read + io::Seek {
 
     let mut entire_superblock = [0u8; 1024];
@@ -184,6 +184,9 @@ where R: io::Read + io::Seek {
     ensure!(!(has_checksums && compatible_features_read_only.contains(GDT_CSUM)),
         AssumptionFailed("metadata checksums are incompatible with the GDT checksum feature".to_string())
     );
+
+    ensure!(has_checksums || ::Checksums::Required != options.checksums,
+        NotFound("checksums are disabled, but required by options".to_string()));
 
     let mut s_uuid = [0; 16];
     inner.read_exact(&mut s_uuid)?; /* 128-bit uuid for volume */
