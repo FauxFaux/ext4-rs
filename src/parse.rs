@@ -391,7 +391,7 @@ where F: FnOnce(u64) -> Result<Vec<u8>> {
         LittleEndian::write_u32(&mut bytes[4..8], i_generation);
         let base = ext4_style_crc32c_le(uuid_checksum, &bytes);
 
-        if let Some(_) = i_checksum_hi {
+        if i_checksum_hi.is_some() {
             data[0x82] = 0;
             data[0x83] = 0;
         }
