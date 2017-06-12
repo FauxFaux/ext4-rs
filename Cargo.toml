@@ -14,7 +14,10 @@ license = "MIT"
 bitflags = "0.9.1"
 byteorder = "1.0.0"
 crc = "1.0.0"
-error-chain = "0.10.0"
+
+[dependencies.error-chain]
+version = "0.10.0"
+default-features = false
 
 [badges]
 travis-ci = { repository = "FauxFaux/ext4-rs" }
