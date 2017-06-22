@@ -227,7 +227,7 @@ impl Default for Checksums {
 
 #[derive(Debug, Default)]
 pub struct Options {
-    checksums: Checksums,
+    pub checksums: Checksums,
 }
 
 impl<R> SuperBlock<R>
