@@ -1,3 +1,4 @@
+extern crate bootsector;
 extern crate ext4;
 
 use std::fs;
@@ -17,12 +18,20 @@ fn all_types() {
         }
 
         let mut img = io::BufReader::new(fs::File::open(file.path()).unwrap());
-        for part in ext4::mbr::read_partition_table(&mut img).unwrap() {
-            if 0x83 != part.type_code {
-                continue;
+        for part in bootsector::list_partitions(&mut img, &bootsector::Options::default()).unwrap() {
+            match part.attributes {
+                bootsector::Attributes::MBR {
+                    type_code,
+                    ..
+                } => {
+                    if 0x83 != type_code {
+                        continue;
+                    }
+                }
+                _ => panic!("unexpected partition table"),
             }
 
-            let mut part_reader = ext4::mbr::read_partition(&mut img, &part).unwrap();
+            let mut part_reader = bootsector::open_partition(&mut img, &part).unwrap();
             let mut superblock = ext4::SuperBlock::new(&mut part_reader).unwrap();
             let root = superblock.root().unwrap();
             superblock.walk(&root, image_name.to_string(), &mut |fs, path, inode, enhanced| {

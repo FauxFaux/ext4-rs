@@ -36,8 +36,6 @@ mod extents;
 /// Raw object parsing API. Not versioned / supported.
 pub mod parse;
 
-pub mod mbr;
-
 use extents::TreeReader;
 
 mod errors {
