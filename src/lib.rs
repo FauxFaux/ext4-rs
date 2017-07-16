@@ -438,6 +438,11 @@ impl Inode {
         loop {
             let child_inode = cursor.read_u32::<LittleEndian>()?;
             let rec_len = cursor.read_u16::<LittleEndian>()?;
+
+            ensure!(rec_len > 8,
+                UnsupportedFeature(format!("directory record length is too short, {} must be > 8", rec_len))
+            );
+
             let name_len = cursor.read_u8()?;
             let file_type = cursor.read_u8()?;
             let mut name = vec![0u8; name_len as usize];
@@ -467,7 +472,7 @@ impl Inode {
                 break;
             }
 
-            cursor.seek(io::SeekFrom::Current(rec_len as i64 - name_len as i64 - 4 - 2 - 2))?;
+            cursor.seek(io::SeekFrom::Current(rec_len as i64 - name_len as i64 - 4 - 2 - 1 - 1))?;
 
             read += rec_len as usize;
             if read >= total_len {
