@@ -56,21 +56,21 @@ bitflags! {
 
 bitflags! {
     struct IncompatibleFeature: u32 {
-       const INCOMPAT_COMPRESSION = 0x0001;
-       const INCOMPAT_FILETYPE    = 0x0002;
-       const INCOMPAT_RECOVER     = 0x0004; /* Needs recovery */
-       const INCOMPAT_JOURNAL_DEV = 0x0008; /* Journal device */
-       const INCOMPAT_META_BG     = 0x0010;
-       const INCOMPAT_EXTENTS     = 0x0040; /* extents support */
-       const INCOMPAT_64BIT       = 0x0080;
-       const INCOMPAT_MMP         = 0x0100;
-       const INCOMPAT_FLEX_BG     = 0x0200;
-       const INCOMPAT_EA_INODE    = 0x0400; /* EA in inode */
-       const INCOMPAT_DIRDATA     = 0x1000; /* data in dirent */
-       const INCOMPAT_CSUM_SEED   = 0x2000;
-       const INCOMPAT_LARGEDIR    = 0x4000; /* >2GB or 3-lvl htree */
-       const INCOMPAT_INLINE_DATA = 0x8000; /* data in inode */
-       const INCOMPAT_ENCRYPT     = 0x10000;
+       const COMPRESSION    = 0x0001;
+       const FILETYPE       = 0x0002;
+       const RECOVER        = 0x0004; /* Needs recovery */
+       const JOURNAL_DEV    = 0x0008; /* Journal device */
+       const META_BG        = 0x0010;
+       const EXTENTS        = 0x0040; /* extents support */
+       const SIXTY_FOUR_BIT = 0x0080;
+       const MMP            = 0x0100;
+       const FLEX_BG        = 0x0200;
+       const EA_INODE       = 0x0400; /* EA in inode */
+       const DIRDATA        = 0x1000; /* data in dirent */
+       const CSUM_SEED      = 0x2000;
+       const LARGEDIR       = 0x4000; /* >2GB or 3-lvl htree */
+       const INLINE_DATA    = 0x8000; /* data in inode */
+       const ENCRYPT        = 0x10000;
     }
 }
 
@@ -152,7 +152,7 @@ where R: io::Read + io::Seek {
 
     let compatible_features = CompatibleFeature::from_bits_truncate(s_feature_compat);
 
-    let load_xattrs = compatible_features.contains(EXT_ATTR);
+    let load_xattrs = compatible_features.contains(CompatibleFeature::EXT_ATTR);
 
     let s_feature_incompat =
         inner.read_u32::<LittleEndian>()?; /* incompatible feature set */
@@ -161,27 +161,27 @@ where R: io::Read + io::Seek {
         .ok_or_else(|| parse_error(format!("completely unsupported incompatible feature flag: {:b}", s_feature_incompat)))?;
 
     let supported_incompatible_features =
-        INCOMPAT_FILETYPE
-            | INCOMPAT_EXTENTS
-            | INCOMPAT_FLEX_BG
-            | INCOMPAT_RECOVER
-            | INCOMPAT_64BIT;
+        IncompatibleFeature::FILETYPE
+            | IncompatibleFeature::EXTENTS
+            | IncompatibleFeature::FLEX_BG
+            | IncompatibleFeature::RECOVER
+            | IncompatibleFeature::SIXTY_FOUR_BIT;
 
     if incompatible_features.intersects(!supported_incompatible_features) {
         return Err(parse_error(format!("some unsupported incompatible feature flags: {:?}",
                                        incompatible_features & !supported_incompatible_features)));
     }
 
-    let long_structs = incompatible_features.contains(INCOMPAT_64BIT);
+    let long_structs = incompatible_features.contains(IncompatibleFeature::SIXTY_FOUR_BIT);
 
     let s_feature_ro_compat =
         inner.read_u32::<LittleEndian>()?; /* readonly-compatible feature set */
 
     let compatible_features_read_only = CompatibleFeatureReadOnly::from_bits_truncate(s_feature_ro_compat);
 
-    let has_checksums = compatible_features_read_only.contains(METADATA_CSUM);
+    let has_checksums = compatible_features_read_only.contains(CompatibleFeatureReadOnly::METADATA_CSUM);
 
-    ensure!(!(has_checksums && compatible_features_read_only.contains(GDT_CSUM)),
+    ensure!(!(has_checksums && compatible_features_read_only.contains(CompatibleFeatureReadOnly::GDT_CSUM)),
         AssumptionFailed("metadata checksums are incompatible with the GDT checksum feature".to_string())
     );
 

@@ -70,31 +70,31 @@ use errors::ErrorKind::*;
 
 bitflags! {
     pub struct InodeFlags: u32 {
-        const INODE_SECRM        = 0x00000001; /* Secure deletion */
-        const INODE_UNRM         = 0x00000002; /* Undelete */
-        const INODE_COMPR        = 0x00000004; /* Compress file */
-        const INODE_SYNC         = 0x00000008; /* Synchronous updates */
-        const INODE_IMMUTABLE    = 0x00000010; /* Immutable file */
-        const INODE_APPEND       = 0x00000020; /* writes to file may only append */
-        const INODE_NODUMP       = 0x00000040; /* do not dump file */
-        const INODE_NOATIME      = 0x00000080; /* do not update atime */
-        const INODE_DIRTY        = 0x00000100; /* reserved for compression */
-        const INODE_COMPRBLK     = 0x00000200; /* One or more compressed clusters */
-        const INODE_NOCOMPR      = 0x00000400; /* Don't compress */
-        const INODE_ENCRYPT      = 0x00000800; /* encrypted file */
-        const INODE_INDEX        = 0x00001000; /* hash-indexed directory */
-        const INODE_IMAGIC       = 0x00002000; /* AFS directory */
-        const INODE_JOURNAL_DATA = 0x00004000; /* file data should be journaled */
-        const INODE_NOTAIL       = 0x00008000; /* file tail should not be merged */
-        const INODE_DIRSYNC      = 0x00010000; /* dirsync behaviour (directories only) */
-        const INODE_TOPDIR       = 0x00020000; /* Top of directory hierarchies*/
-        const INODE_HUGE_FILE    = 0x00040000; /* Set to each huge file */
-        const INODE_EXTENTS      = 0x00080000; /* Inode uses extents */
-        const INODE_EA_INODE     = 0x00200000; /* Inode used for large EA */
-        const INODE_EOFBLOCKS    = 0x00400000; /* Blocks allocated beyond EOF */
-        const INODE_INLINE_DATA  = 0x10000000; /* Inode has inline data. */
-        const INODE_PROJINHERIT  = 0x20000000; /* Create with parents projid */
-        const INODE_RESERVED     = 0x80000000; /* reserved for ext4 lib */
+        const SECRM        = 0x00000001; /* Secure deletion */
+        const UNRM         = 0x00000002; /* Undelete */
+        const COMPR        = 0x00000004; /* Compress file */
+        const SYNC         = 0x00000008; /* Synchronous updates */
+        const IMMUTABLE    = 0x00000010; /* Immutable file */
+        const APPEND       = 0x00000020; /* writes to file may only append */
+        const NODUMP       = 0x00000040; /* do not dump file */
+        const NOATIME      = 0x00000080; /* do not update atime */
+        const DIRTY        = 0x00000100; /* reserved for compression */
+        const COMPRBLK     = 0x00000200; /* One or more compressed clusters */
+        const NOCOMPR      = 0x00000400; /* Don't compress */
+        const ENCRYPT      = 0x00000800; /* encrypted file */
+        const INDEX        = 0x00001000; /* hash-indexed directory */
+        const IMAGIC       = 0x00002000; /* AFS directory */
+        const JOURNAL_DATA = 0x00004000; /* file data should be journaled */
+        const NOTAIL       = 0x00008000; /* file tail should not be merged */
+        const DIRSYNC      = 0x00010000; /* dirsync behaviour (directories only) */
+        const TOPDIR       = 0x00020000; /* Top of directory hierarchies*/
+        const HUGE_FILE    = 0x00040000; /* Set to each huge file */
+        const EXTENTS      = 0x00080000; /* Inode uses extents */
+        const EA_INODE     = 0x00200000; /* Inode used for large EA */
+        const EOFBLOCKS    = 0x00400000; /* Blocks allocated beyond EOF */
+        const INLINE_DATA  = 0x10000000; /* Inode has inline data. */
+        const PROJINHERIT  = 0x20000000; /* Create with parents projid */
+        const RESERVED     = 0x80000000; /* reserved for ext4 lib */
     }
 }
 
@@ -491,19 +491,19 @@ impl Inode {
 
     fn only_relevant_flag_is_extents(&self) -> bool {
         self.flags & (
-            INODE_COMPR
-            | INODE_DIRTY
-            | INODE_COMPRBLK
-            | INODE_ENCRYPT
-            | INODE_IMAGIC
-            | INODE_NOTAIL
-            | INODE_TOPDIR
-            | INODE_HUGE_FILE
-            | INODE_EXTENTS
-            | INODE_EA_INODE
-            | INODE_EOFBLOCKS
-            | INODE_INLINE_DATA
-        ) == INODE_EXTENTS
+            InodeFlags::COMPR
+            | InodeFlags::DIRTY
+            | InodeFlags::COMPRBLK
+            | InodeFlags::ENCRYPT
+            | InodeFlags::IMAGIC
+            | InodeFlags::NOTAIL
+            | InodeFlags::TOPDIR
+            | InodeFlags::HUGE_FILE
+            | InodeFlags::EXTENTS
+            | InodeFlags::EA_INODE
+            | InodeFlags::EOFBLOCKS
+            | InodeFlags::INLINE_DATA
+        ) == InodeFlags::EXTENTS
     }
 }
 

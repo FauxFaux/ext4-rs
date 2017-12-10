@@ -1,26 +1,29 @@
 [package]
-name = "ext4"
-version = "0.4.1"
 authors = ["Chris West (Faux) <git@goeswhere.com>"]
 build = "build.rs"
-
+categories = [
+    "filesystem",
+    "os",
+    "parsing",
+]
 description = "Read information from EXT4 filesystem images"
-repository = "https://github.com/FauxFaux/ext4-rs"
-readme = "README.md"
-categories = ["filesystem", "os", "parsing"]
 license = "MIT"
+name = "ext4"
+readme = "README.md"
+repository = "https://github.com/FauxFaux/ext4-rs"
+version = "0.4.1"
+
+[badges.travis-ci]
+repository = "FauxFaux/ext4-rs"
 
 [dependencies]
-bitflags = "0.9.1"
-byteorder = "1.0.0"
-crc = "1.0.0"
-
-[dev-dependencies]
-bootsector = "0.1.0"
+bitflags = "1"
+byteorder = "1"
+crc = "1"
 
 [dependencies.error-chain]
-version = "0.10.0"
 default-features = false
+version = "0.11"
 
-[badges]
-travis-ci = { repository = "FauxFaux/ext4-rs" }
+[dev-dependencies]
+bootsector = "0.1"
