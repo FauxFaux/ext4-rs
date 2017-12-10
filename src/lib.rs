@@ -17,14 +17,16 @@ file on the filesystem. You can grant yourself temporary access with
 `sudo setfacl -m u:${USER}:r /dev/sda1`, if you so fancy. This will be lost at reboot.
 */
 
-#[macro_use] extern crate bitflags;
+#[macro_use]
+extern crate bitflags;
 extern crate byteorder;
 extern crate crc;
-#[macro_use] extern crate error_chain;
+#[macro_use]
+extern crate error_chain;
 
 use std::io;
 
-use byteorder::{ReadBytesExt, LittleEndian};
+use byteorder::{LittleEndian, ReadBytesExt};
 
 use std::collections::HashMap;
 use std::io::Read;
@@ -229,8 +231,9 @@ pub struct Options {
 }
 
 impl<R> SuperBlock<R>
-where R: io::Read + io::Seek {
-
+where
+    R: io::Read + io::Seek,
+{
     /// Open a filesystem, and load its superblock.
     pub fn new(inner: R) -> Result<SuperBlock<R>> {
         SuperBlock::new_with_options(inner, &Options::default())
@@ -247,8 +250,12 @@ where R: io::Read + io::Seek {
             .chain_err(|| format!("failed to find inode <{}> on disc", inode))?;
 
         let uuid_checksum = self.uuid_checksum;
-        let parsed = parse::inode(data, |block| self.load_disc_bytes(block), uuid_checksum, inode)
-            .chain_err(|| format!("failed to parse inode <{}>", inode))?;
+        let parsed = parse::inode(
+            data,
+            |block| self.load_disc_bytes(block),
+            uuid_checksum,
+            inode,
+        ).chain_err(|| format!("failed to parse inode <{}>", inode))?;
 
         Ok(Inode {
             number: inode,
@@ -261,7 +268,8 @@ where R: io::Read + io::Seek {
     }
 
     fn load_inode_bytes(&mut self, inode: u32) -> Result<Vec<u8>> {
-        self.inner.seek(io::SeekFrom::Start(self.groups.index_of(inode)?))?;
+        self.inner
+            .seek(io::SeekFrom::Start(self.groups.index_of(inode)?))?;
         let mut data = vec![0u8; self.groups.inode_size as usize];
         self.inner.read_exact(&mut data)?;
         Ok(data)
@@ -280,11 +288,12 @@ where R: io::Read + io::Seek {
     /// The closure should return `true` if it wants walking to continue.
     /// The method returns `true` if the closure always returned true.
     pub fn walk<F>(&mut self, inode: &Inode, path: String, visit: &mut F) -> Result<bool>
-    where F: FnMut(&mut Self, &str, &Inode, &Enhanced) -> Result<bool> {
+    where
+        F: FnMut(&mut Self, &str, &Inode, &Enhanced) -> Result<bool>,
+    {
         let enhanced = inode.enhance(&mut self.inner)?;
 
-        if !visit(self, path.as_str(), inode, &enhanced)
-                .chain_err(|| "user closure failed")? {
+        if !visit(self, path.as_str(), inode, &enhanced).chain_err(|| "user closure failed")? {
             return Ok(false);
         }
 
@@ -297,14 +306,15 @@ where R: io::Read + io::Seek {
                 let child_node = self.load_inode(entry.inode)
                     .chain_err(|| format!("loading {} ({:?})", entry.name, entry.file_type))?;
                 if !self.walk(&child_node, format!("{}/{}", path, entry.name), visit)
-                        .chain_err(|| format!("processing '{}'", entry.name))? {
-                    return Ok(false)
+                    .chain_err(|| format!("processing '{}'", entry.name))?
+                {
+                    return Ok(false);
                 }
             }
         }
 
-//    self.walk(inner, &i, format!("{}/{}", path, entry.name)).map_err(|e|
-//    parse_error(format!("while processing {}: {}", path, e)))?;
+        //    self.walk(inner, &i, format!("{}/{}", path, entry.name)).map_err(|e|
+        //    parse_error(format!("while processing {}: {}", path, e)))?;
 
         Ok(true)
     }
@@ -362,7 +372,9 @@ where R: io::Read + io::Seek {
 }
 
 fn load_disc_bytes<R>(mut inner: R, block_size: u32, block: u64) -> Result<Vec<u8>>
-where R: io::Read + io::Seek {
+where
+    R: io::Read + io::Seek,
+{
     inner.seek(io::SeekFrom::Start(block as u64 * block_size as u64))?;
     let mut data = vec![0u8; block_size as usize];
     inner.read_exact(&mut data)?;
@@ -370,33 +382,54 @@ where R: io::Read + io::Seek {
 }
 
 impl Inode {
-
     fn reader<R>(&self, inner: R) -> Result<TreeReader<R>>
-    where R: io::Read + io::Seek {
-        TreeReader::new(inner, self.block_size, self.stat.size, self.core, self.checksum_prefix)
-            .chain_err(|| format!("opening inode <{}>", self.number))
+    where
+        R: io::Read + io::Seek,
+    {
+        TreeReader::new(
+            inner,
+            self.block_size,
+            self.stat.size,
+            self.core,
+            self.checksum_prefix,
+        ).chain_err(|| format!("opening inode <{}>", self.number))
     }
 
     fn enhance<R>(&self, inner: R) -> Result<Enhanced>
-    where R: io::Read + io::Seek {
+    where
+        R: io::Read + io::Seek,
+    {
         Ok(match self.stat.extracted_type {
             FileType::RegularFile => Enhanced::RegularFile,
             FileType::Socket => Enhanced::Socket,
             FileType::Fifo => Enhanced::Fifo,
 
             FileType::Directory => Enhanced::Directory(self.read_directory(inner)?),
-            FileType::SymbolicLink =>
+            FileType::SymbolicLink => {
                 Enhanced::SymbolicLink(if self.stat.size < INODE_CORE_SIZE as u64 {
-                    ensure!(self.flags.is_empty(),
-                        UnsupportedFeature(format!("symbolic links may not have flags: {:?}", self.flags)));
+                    ensure!(
+                        self.flags.is_empty(),
+                        UnsupportedFeature(format!(
+                            "symbolic links may not have flags: {:?}",
+                            self.flags
+                        ))
+                    );
                     std::str::from_utf8(&self.core[0..self.stat.size as usize])
-                        .chain_err(|| "short symlink is invalid utf-8")?.to_string()
+                        .chain_err(|| "short symlink is invalid utf-8")?
+                        .to_string()
                 } else {
-                    ensure!(self.only_relevant_flag_is_extents(),
-                        UnsupportedFeature(format!("symbolic links may not have non-extent flags: {:?}", self.flags)));
+                    ensure!(
+                        self.only_relevant_flag_is_extents(),
+                        UnsupportedFeature(format!(
+                            "symbolic links may not have non-extent flags: {:?}",
+                            self.flags
+                        ))
+                    );
                     std::str::from_utf8(&self.load_all(inner)?)
-                        .chain_err(|| "long symlink is invalid utf-8")?.to_string()
-                }),
+                        .chain_err(|| "long symlink is invalid utf-8")?
+                        .to_string()
+                })
+            }
             FileType::CharacterDevice => {
                 let (maj, min) = load_maj_min(self.core);
                 Enhanced::CharacterDevice(maj, min)
@@ -409,7 +442,9 @@ impl Inode {
     }
 
     fn load_all<R>(&self, inner: R) -> Result<Vec<u8>>
-    where R: io::Read + io::Seek {
+    where
+        R: io::Read + io::Seek,
+    {
         let size = usize_check(self.stat.size)?;
         let mut ret = vec![0u8; size];
 
@@ -419,14 +454,20 @@ impl Inode {
     }
 
     fn read_directory<R>(&self, inner: R) -> Result<Vec<DirEntry>>
-    where R: io::Read + io::Seek {
-
+    where
+        R: io::Read + io::Seek,
+    {
         let mut dirs = Vec::with_capacity(40);
 
         let data = {
             // if the flags, minus irrelevant flags, isn't just EXTENTS...
-            ensure!(self.only_relevant_flag_is_extents(),
-                UnsupportedFeature(format!("inode with unsupported flags: {0:x} {0:b}", self.flags)));
+            ensure!(
+                self.only_relevant_flag_is_extents(),
+                UnsupportedFeature(format!(
+                    "inode with unsupported flags: {0:x} {0:b}",
+                    self.flags
+                ))
+            );
 
             self.load_all(inner)?
         };
@@ -439,8 +480,12 @@ impl Inode {
             let child_inode = cursor.read_u32::<LittleEndian>()?;
             let rec_len = cursor.read_u16::<LittleEndian>()?;
 
-            ensure!(rec_len > 8,
-                UnsupportedFeature(format!("directory record length is too short, {} must be > 8", rec_len))
+            ensure!(
+                rec_len > 8,
+                UnsupportedFeature(format!(
+                    "directory record length is too short, {} must be > 8",
+                    rec_len
+                ))
             );
 
             let name_len = cursor.read_u8()?;
@@ -448,39 +493,56 @@ impl Inode {
             let mut name = vec![0u8; name_len as usize];
             cursor.read_exact(&mut name)?;
             if 0 != child_inode {
-                let name = std::str::from_utf8(&name).map_err(|e|
-                    parse_error(format!("invalid utf-8 in file name: {}", e)))?;
+                let name = std::str::from_utf8(&name)
+                    .map_err(|e| parse_error(format!("invalid utf-8 in file name: {}", e)))?;
 
                 dirs.push(DirEntry {
                     inode: child_inode,
                     name: name.to_string(),
-                    file_type: FileType::from_dir_hint(file_type)
-                        .ok_or_else(|| UnsupportedFeature(format!("unexpected file type in directory: {}", file_type)))?,
+                    file_type: FileType::from_dir_hint(file_type).ok_or_else(|| {
+                        UnsupportedFeature(format!(
+                            "unexpected file type in directory: {}",
+                            file_type
+                        ))
+                    })?,
                 });
-
             } else if 12 == rec_len && 0 == name_len && 0xDE == file_type {
                 // Magic entry representing the end of the list
 
                 if let Some(checksum_prefix) = self.checksum_prefix {
                     let expected = cursor.read_u32::<LittleEndian>()?;
-                    let computed = parse::ext4_style_crc32c_le(checksum_prefix, &cursor.into_inner()[0..read]);
-                    ensure!(expected == computed,
-                        AssumptionFailed(format!("directory checksum mismatch: on-disk: {:08x}, computed: {:08x}",
-                                expected, computed)));
+                    let computed =
+                        parse::ext4_style_crc32c_le(checksum_prefix, &cursor.into_inner()[0..read]);
+                    ensure!(
+                        expected == computed,
+                        AssumptionFailed(format!(
+                            "directory checksum mismatch: on-disk: {:08x}, computed: {:08x}",
+                            expected,
+                            computed
+                        ))
+                    );
                 }
 
                 break;
             }
 
-            cursor.seek(io::SeekFrom::Current(rec_len as i64 - name_len as i64 - 4 - 2 - 1 - 1))?;
+            cursor.seek(io::SeekFrom::Current(
+                rec_len as i64 - name_len as i64 - 4 - 2 - 1 - 1,
+            ))?;
 
             read += rec_len as usize;
             if read >= total_len {
-                ensure!(read == total_len,
-                    AssumptionFailed(format!("short read, {} != {}", read, total_len)));
+                ensure!(
+                    read == total_len,
+                    AssumptionFailed(format!("short read, {} != {}", read, total_len))
+                );
 
-                ensure!(self.checksum_prefix.is_none(),
-                    AssumptionFailed("directory checksums are enabled but checksum record not found".to_string()));
+                ensure!(
+                    self.checksum_prefix.is_none(),
+                    AssumptionFailed(
+                        "directory checksums are enabled but checksum record not found".to_string()
+                    )
+                );
 
                 break;
             }
@@ -490,20 +552,11 @@ impl Inode {
     }
 
     fn only_relevant_flag_is_extents(&self) -> bool {
-        self.flags & (
-            InodeFlags::COMPR
-            | InodeFlags::DIRTY
-            | InodeFlags::COMPRBLK
-            | InodeFlags::ENCRYPT
-            | InodeFlags::IMAGIC
-            | InodeFlags::NOTAIL
-            | InodeFlags::TOPDIR
-            | InodeFlags::HUGE_FILE
-            | InodeFlags::EXTENTS
-            | InodeFlags::EA_INODE
-            | InodeFlags::EOFBLOCKS
-            | InodeFlags::INLINE_DATA
-        ) == InodeFlags::EXTENTS
+        self.flags
+            & (InodeFlags::COMPR | InodeFlags::DIRTY | InodeFlags::COMPRBLK | InodeFlags::ENCRYPT
+                | InodeFlags::IMAGIC | InodeFlags::NOTAIL | InodeFlags::TOPDIR
+                | InodeFlags::HUGE_FILE | InodeFlags::EXTENTS | InodeFlags::EA_INODE
+                | InodeFlags::EOFBLOCKS | InodeFlags::INLINE_DATA) == InodeFlags::EXTENTS
     }
 }
 
@@ -512,11 +565,11 @@ fn load_maj_min(core: [u8; INODE_CORE_SIZE]) -> (u16, u32) {
         (core[1] as u16, core[0] as u32)
     } else {
         // if you think reading this is bad, I had to write it
-        (core[5] as u16
-             | (((core[6] & 0b0000_1111) as u16) << 8),
-         core[4] as u32
-             | ((core[7] as u32) << 12)
-             | (((core[6] & 0b1111_0000) as u32) >> 4) << 8)
+        (
+            core[5] as u16 | (((core[6] & 0b0000_1111) as u16) << 8),
+            core[4] as u32 | ((core[7] as u32) << 12)
+                | (((core[6] & 0b1111_0000) as u32) >> 4) << 8,
+        )
     }
 }
 
@@ -539,8 +592,13 @@ fn parse_error(msg: String) -> Error {
 #[allow(unknown_lints, absurd_extreme_comparisons)]
 pub fn usize_check(val: u64) -> Result<usize> {
     // this check only makes sense on non-64-bit platforms; on 64-bit usize == u64.
-    ensure!(val <= std::usize::MAX as u64,
-        AssumptionFailed(format!("value is too big for memory on this platform: {}", val)));
+    ensure!(
+        val <= std::usize::MAX as u64,
+        AssumptionFailed(format!(
+            "value is too big for memory on this platform: {}",
+            val
+        ))
+    );
 
     Ok(val as usize)
 }
