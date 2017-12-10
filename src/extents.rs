@@ -260,7 +260,7 @@ where
     Ok(extents)
 }
 
-fn zero(mut buf: &mut [u8]) {
+fn zero(buf: &mut [u8]) {
     unsafe { std::ptr::write_bytes(buf.as_mut_ptr(), 0u8, buf.len()) }
 }
 
