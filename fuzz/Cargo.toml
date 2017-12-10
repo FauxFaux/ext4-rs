@@ -19,4 +19,4 @@ members = ["."]
 
 [[bin]]
 name = "inode"
-path = "fuzzers/inode.rs"
+path = "fuzz_targets/inode.rs"
