@@ -29,6 +29,10 @@ This is not a filesystem driver. It does not support efficiently modifying real 
 I'm not especially interested in resource-constrained platforms: memory and IO are not used
   efficiently.
 
+## Changelog
+
+ * `0.5.0`: update `bitflags` for associated constants, and rename some public constants.
+ * `0.4.1`: fix for an infinite loop parsing directory entries
 
 
 ## Development
