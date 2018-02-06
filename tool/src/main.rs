@@ -1,3 +1,4 @@
+extern crate bootsector;
 extern crate clap;
 #[macro_use]
 extern crate error_chain;
@@ -73,21 +74,38 @@ where
     Ok(())
 }
 
-fn on_fs<F>(file: &str, matches: &clap::ArgMatches, work: F) -> Result<()>
-where
-    F: Fn(&clap::ArgMatches, SuperBlock<&mut std::io::BufReader<std::fs::File>>) -> Result<()>,
-{
+fn on_fs(file: &str, work: Command) -> Result<()> {
     let mut reader = io::BufReader::new(fs::File::open(file)?);
-    let superblock = ext4::SuperBlock::new(&mut reader)?;
-    work(matches, superblock)
+    match bootsector::list_partitions(&mut reader, &bootsector::Options::default()) {
+        Ok(partitions) => for part in partitions {
+            work.exec(ext4::SuperBlock::new(bootsector::open_partition(
+                &mut reader,
+                &part,
+            )?)?)?;
+        },
+        Err(_) => work.exec(ext4::SuperBlock::new(reader)?)?,
+    }
+    Ok(())
 }
 
-fn for_each_input<F>(matches: &clap::ArgMatches, work: F) -> Result<()>
-where
-    F: Fn(&clap::ArgMatches, SuperBlock<&mut std::io::BufReader<std::fs::File>>) -> Result<()>,
-{
+fn for_each_input(matches: &clap::ArgMatches, work: Command) -> Result<()> {
     let file = matches.value_of("file").unwrap();
-    on_fs(file, matches, work).chain_err(|| format!("while processing '{}'", file))
+    on_fs(file, work).chain_err(|| format!("while processing '{}'", file))
+}
+
+#[derive(Copy, Clone, PartialEq, Eq)]
+enum Command {
+    DumpLs,
+    HeadAll { bytes: usize },
+}
+
+impl Command {
+    fn exec<R: Read + Seek>(self, fs: SuperBlock<R>) -> Result<()> {
+        match self {
+            Command::DumpLs => dump_ls(fs),
+            Command::HeadAll { bytes } => head_all(fs, bytes),
+        }
+    }
 }
 
 fn run() -> Result<()> {
@@ -114,11 +132,13 @@ fn run() -> Result<()> {
         .get_matches();
 
     match matches.subcommand() {
-        ("dump-ls", Some(matches)) => for_each_input(matches, |_, fs| dump_ls(fs)),
-        ("head-all", Some(matches)) => for_each_input(matches, |matches, fs| {
-            let bytes = matches.value_of("bytes").unwrap().parse::<usize>().unwrap();
-            head_all(fs, bytes)
-        }),
+        ("dump-ls", Some(matches)) => for_each_input(matches, Command::DumpLs),
+        ("head-all", Some(matches)) => for_each_input(
+            matches,
+            Command::HeadAll {
+                bytes: matches.value_of("bytes").unwrap().parse::<usize>().unwrap(),
+            },
+        ),
         (_, _) => unreachable!(),
     }
 }
