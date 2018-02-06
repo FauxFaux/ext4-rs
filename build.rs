@@ -11,8 +11,7 @@ fn extract_test_images() -> io::Result<()> {
 
     assert!(
         process::Command::new("tar")
-            .args(&["-C", DEST,
-                    "-xf", "scripts/generate-images/images.tgz"])
+            .args(&["-C", DEST, "-xf", "scripts/generate-images/images.tgz"])
             .spawn()?
             .wait()?
             .success()

@@ -139,7 +139,6 @@ where
     }
 }
 
-
 fn add_found_extents<F>(
     load_block: &mut F,
     data: &[u8],
@@ -263,7 +262,6 @@ where
 fn zero(buf: &mut [u8]) {
     unsafe { std::ptr::write_bytes(buf.as_mut_ptr(), 0u8, buf.len()) }
 }
-
 
 #[cfg(test)]
 mod tests {

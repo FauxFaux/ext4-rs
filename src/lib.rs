@@ -517,8 +517,7 @@ impl Inode {
                         expected == computed,
                         AssumptionFailed(format!(
                             "directory checksum mismatch: on-disk: {:08x}, computed: {:08x}",
-                            expected,
-                            computed
+                            expected, computed
                         ))
                     );
                 }

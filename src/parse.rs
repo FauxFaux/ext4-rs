@@ -269,8 +269,7 @@ where
             s_checksum == expected,
             AssumptionFailed(format!(
                 "superblock reports checksums supported, but didn't match: {:x} != {:x}",
-                s_checksum,
-                expected
+                s_checksum, expected
             ))
         );
     }
@@ -480,8 +479,7 @@ where
                 expected == computed,
                 AssumptionFailed(format!(
                     "full checksum mismatch: on-disc: {:08x} computed: {:08x}",
-                    expected,
-                    computed
+                    expected, computed
                 ))
             );
         } else {
@@ -490,8 +488,7 @@ where
                 l_i_checksum_lo == short_computed,
                 AssumptionFailed(format!(
                     "short checksum mismatch: on-disc: {:04x} computed: {:04x}",
-                    l_i_checksum_lo,
-                    short_computed
+                    l_i_checksum_lo, short_computed
                 ))
             );
         }
@@ -532,11 +529,9 @@ where
             epoch_secs: i_mtime,
             nanos: i_mtime_extra,
         },
-        btime: i_crtime.map(|epoch_secs| {
-            Time {
-                epoch_secs,
-                nanos: i_crtime_extra,
-            }
+        btime: i_crtime.map(|epoch_secs| Time {
+            epoch_secs,
+            nanos: i_crtime_extra,
         }),
         link_count: i_links_count,
         xattrs,
@@ -588,8 +583,7 @@ fn xattr_block(
             x_checksum == computed,
             AssumptionFailed(format!(
                 "xattr block checksum invalid: on-disk: {:08x}, computed: {:08x}",
-                x_checksum,
-                computed
+                x_checksum, computed
             ))
         );
     }
