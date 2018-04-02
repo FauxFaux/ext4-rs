@@ -1,6 +1,8 @@
 use std;
 use std::io;
 
+use cast::u32;
+
 use errors::ErrorKind::*;
 use errors::Result;
 use read_le16;
@@ -68,7 +70,7 @@ fn find_part(part: u32, extents: &[Extent]) -> FoundPart {
             return FoundPart::Sparse(extent.part - part);
         }
 
-        if part >= extent.part && part < extent.part + extent.len as u32 {
+        if part >= extent.part && part < extent.part + u32::from(extent.len) {
             // we're inside it
             return FoundPart::Actual(extent);
         }
@@ -88,7 +90,7 @@ where
 
         let block_size = self.block_size as u64;
 
-        let wanted_block = (self.pos / block_size) as u32;
+        let wanted_block = u32(self.pos / block_size).unwrap();
         let read_of_this_block = self.pos % block_size;
 
         match find_part(wanted_block, &self.extents) {

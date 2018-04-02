@@ -107,8 +107,8 @@ impl BlockGroups {
 
             let inode_table_block =
                 bg_inode_table_lo as u64 | ((bg_inode_table_hi.unwrap_or(0) as u64) << 32);
-            let free_inodes_count = bg_free_inodes_count_lo as u32
-                | ((bg_free_inodes_count_hi.unwrap_or(0) as u32) << 16);
+            let free_inodes_count = u32::from(bg_free_inodes_count_lo)
+                | ((u32::from(bg_free_inodes_count_hi.unwrap_or(0))) << 16);
 
             let unallocated = bg_flags & EXT4_BLOCK_GROUP_INODES_UNUSED != 0
                 || bg_flags & EXT4_BLOCK_GROUP_BLOCKS_UNUSED != 0;

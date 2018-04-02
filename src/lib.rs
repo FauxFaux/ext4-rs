@@ -20,6 +20,7 @@ file on the filesystem. You can grant yourself temporary access with
 #[macro_use]
 extern crate bitflags;
 extern crate byteorder;
+extern crate cast;
 extern crate crc;
 #[macro_use]
 extern crate error_chain;
@@ -71,31 +72,31 @@ pub use errors::*;
 
 bitflags! {
     pub struct InodeFlags: u32 {
-        const SECRM        = 0x00000001; /* Secure deletion */
-        const UNRM         = 0x00000002; /* Undelete */
-        const COMPR        = 0x00000004; /* Compress file */
-        const SYNC         = 0x00000008; /* Synchronous updates */
-        const IMMUTABLE    = 0x00000010; /* Immutable file */
-        const APPEND       = 0x00000020; /* writes to file may only append */
-        const NODUMP       = 0x00000040; /* do not dump file */
-        const NOATIME      = 0x00000080; /* do not update atime */
-        const DIRTY        = 0x00000100; /* reserved for compression */
-        const COMPRBLK     = 0x00000200; /* One or more compressed clusters */
-        const NOCOMPR      = 0x00000400; /* Don't compress */
-        const ENCRYPT      = 0x00000800; /* encrypted file */
-        const INDEX        = 0x00001000; /* hash-indexed directory */
-        const IMAGIC       = 0x00002000; /* AFS directory */
-        const JOURNAL_DATA = 0x00004000; /* file data should be journaled */
-        const NOTAIL       = 0x00008000; /* file tail should not be merged */
-        const DIRSYNC      = 0x00010000; /* dirsync behaviour (directories only) */
-        const TOPDIR       = 0x00020000; /* Top of directory hierarchies*/
-        const HUGE_FILE    = 0x00040000; /* Set to each huge file */
-        const EXTENTS      = 0x00080000; /* Inode uses extents */
-        const EA_INODE     = 0x00200000; /* Inode used for large EA */
-        const EOFBLOCKS    = 0x00400000; /* Blocks allocated beyond EOF */
-        const INLINE_DATA  = 0x10000000; /* Inode has inline data. */
-        const PROJINHERIT  = 0x20000000; /* Create with parents projid */
-        const RESERVED     = 0x80000000; /* reserved for ext4 lib */
+        const SECRM        = 0x0000_0001; /* Secure deletion */
+        const UNRM         = 0x0000_0002; /* Undelete */
+        const COMPR        = 0x0000_0004; /* Compress file */
+        const SYNC         = 0x0000_0008; /* Synchronous updates */
+        const IMMUTABLE    = 0x0000_0010; /* Immutable file */
+        const APPEND       = 0x0000_0020; /* writes to file may only append */
+        const NODUMP       = 0x0000_0040; /* do not dump file */
+        const NOATIME      = 0x0000_0080; /* do not update atime */
+        const DIRTY        = 0x0000_0100; /* reserved for compression */
+        const COMPRBLK     = 0x0000_0200; /* One or more compressed clusters */
+        const NOCOMPR      = 0x0000_0400; /* Don't compress */
+        const ENCRYPT      = 0x0000_0800; /* encrypted file */
+        const INDEX        = 0x0000_1000; /* hash-indexed directory */
+        const IMAGIC       = 0x0000_2000; /* AFS directory */
+        const JOURNAL_DATA = 0x0000_4000; /* file data should be journaled */
+        const NOTAIL       = 0x0000_8000; /* file tail should not be merged */
+        const DIRSYNC      = 0x0001_0000; /* dirsync behaviour (directories only) */
+        const TOPDIR       = 0x0002_0000; /* Top of directory hierarchies*/
+        const HUGE_FILE    = 0x0004_0000; /* Set to each huge file */
+        const EXTENTS      = 0x0008_0000; /* Inode uses extents */
+        const EA_INODE     = 0x0020_0000; /* Inode used for large EA */
+        const EOFBLOCKS    = 0x0040_0000; /* Blocks allocated beyond EOF */
+        const INLINE_DATA  = 0x1000_0000; /* Inode has inline data. */
+        const PROJINHERIT  = 0x2000_0000; /* Create with parents projid */
+        const RESERVED     = 0x8000_0000; /* reserved for ext4 lib */
     }
 }
 
@@ -525,7 +526,7 @@ impl Inode {
             }
 
             cursor.seek(io::SeekFrom::Current(
-                rec_len as i64 - name_len as i64 - 4 - 2 - 1 - 1,
+                i64::from(rec_len) - i64::from(name_len) - 4 - 2 - 1 - 1,
             ))?;
 
             read += rec_len as usize;
@@ -560,13 +561,13 @@ impl Inode {
 
 fn load_maj_min(core: [u8; INODE_CORE_SIZE]) -> (u16, u32) {
     if 0 != core[0] || 0 != core[1] {
-        (core[1] as u16, core[0] as u32)
+        (u16::from(core[1]), u32::from(core[0]))
     } else {
         // if you think reading this is bad, I had to write it
         (
-            core[5] as u16 | (((core[6] & 0b0000_1111) as u16) << 8),
-            core[4] as u32 | ((core[7] as u32) << 12)
-                | (((core[6] & 0b1111_0000) as u32) >> 4) << 8,
+            u16::from(core[5]) | (u16::from(core[6] & 0b0000_1111) << 8),
+            u32::from(core[4]) | (u32::from(core[7]) << 12)
+                | (u32::from(core[6] & 0b1111_0000) >> 4) << 8,
         )
     }
 }

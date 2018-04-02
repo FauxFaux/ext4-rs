@@ -17,7 +17,7 @@ use read_le32;
 
 const EXT4_SUPER_MAGIC: u16 = 0xEF53;
 const INODE_BASE_LEN: usize = 128;
-const XATTR_MAGIC: u32 = 0xEA020000;
+const XATTR_MAGIC: u32 = 0xEA02_0000;
 
 bitflags! {
     struct CompatibleFeature: u32 {
