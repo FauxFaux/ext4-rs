@@ -1,9 +1,9 @@
 use std::io;
 
-use errors::Result;
-use errors::ErrorKind::*;
-
 use byteorder::{LittleEndian, ReadBytesExt};
+
+use errors::ErrorKind::*;
+use errors::Result;
 
 const EXT4_BLOCK_GROUP_INODES_UNUSED: u16 = 0b1;
 const EXT4_BLOCK_GROUP_BLOCKS_UNUSED: u16 = 0b10;

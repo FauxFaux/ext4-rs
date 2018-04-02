@@ -7,8 +7,8 @@ extern crate hexdump;
 
 use std::fs;
 use std::io;
-
-use std::io::{Read, Seek};
+use std::io::Read;
+use std::io::Seek;
 
 use clap::{App, Arg, SubCommand};
 

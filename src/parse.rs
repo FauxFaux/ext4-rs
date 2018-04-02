@@ -1,24 +1,19 @@
 use std;
-use std::io;
-
-use Time;
-
-use parse_error;
-use errors::*;
-use errors::Result;
-use errors::ErrorKind::*;
-
-use read_le16;
-use read_le32;
-
 use std::collections::HashMap;
-
-use crc;
+use std::io;
+use std::io::Read;
+use std::io::Seek;
 
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
 
-use std::io::Read;
-use std::io::Seek;
+use Time;
+use crc;
+use errors::ErrorKind::*;
+use errors::Result;
+use errors::*;
+use parse_error;
+use read_le16;
+use read_le32;
 
 const EXT4_SUPER_MAGIC: u16 = 0xEF53;
 const INODE_BASE_LEN: usize = 128;

@@ -1,11 +1,10 @@
 use std;
 use std::io;
 
+use errors::ErrorKind::*;
+use errors::Result;
 use read_le16;
 use read_le32;
-
-use errors::Result;
-use errors::ErrorKind::*;
 
 #[derive(Debug)]
 struct Extent {
@@ -267,8 +266,9 @@ fn zero(buf: &mut [u8]) {
 mod tests {
     use std::io;
     use std::io::Read;
-    use extents::TreeReader;
+
     use extents::Extent;
+    use extents::TreeReader;
 
     #[test]
     fn simple_tree() {

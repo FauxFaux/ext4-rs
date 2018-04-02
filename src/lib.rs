@@ -24,13 +24,12 @@ extern crate crc;
 #[macro_use]
 extern crate error_chain;
 
-use std::io;
-
-use byteorder::{LittleEndian, ReadBytesExt};
-
 use std::collections::HashMap;
+use std::io;
 use std::io::Read;
 use std::io::Seek;
+
+use byteorder::{LittleEndian, ReadBytesExt};
 
 mod block_groups;
 mod extents;
@@ -67,8 +66,8 @@ mod errors {
     }
 }
 
-pub use errors::*;
 use errors::ErrorKind::*;
+pub use errors::*;
 
 bitflags! {
     pub struct InodeFlags: u32 {
