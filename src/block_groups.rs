@@ -106,7 +106,7 @@ impl BlockGroups {
             }
 
             let inode_table_block =
-                bg_inode_table_lo as u64 | ((bg_inode_table_hi.unwrap_or(0) as u64) << 32);
+                u64::from(bg_inode_table_lo) | ((bg_inode_table_hi.unwrap_or(0) as u64) << 32);
             let free_inodes_count = u32::from(bg_free_inodes_count_lo)
                 | ((u32::from(bg_free_inodes_count_hi.unwrap_or(0))) << 16);
 
@@ -161,6 +161,7 @@ impl BlockGroups {
             ))
         );
         let block = group.inode_table_block;
-        Ok(block * self.block_size as u64 + inode_index_in_group as u64 * self.inode_size as u64)
+        Ok(block * u64::from(self.block_size)
+            + u64::from(inode_index_in_group) * self.inode_size as u64)
     }
 }

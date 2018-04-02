@@ -5,6 +5,7 @@ use std::io::Read;
 use std::io::Seek;
 
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
+use cast::u16;
 
 use Time;
 use crc;
@@ -323,10 +324,11 @@ where
         block_size
     };
 
-    reader.seek(io::SeekFrom::Start(group_table_pos as u64))?;
-    let blocks_count = (s_blocks_count_lo as u64 + ((s_blocks_count_hi.unwrap_or(0) as u64) << 32)
-        - s_first_data_block as u64 + s_blocks_per_group as u64 - 1)
-        / s_blocks_per_group as u64;
+    reader.seek(io::SeekFrom::Start(u64::from(group_table_pos)))?;
+    let blocks_count = (u64::from(s_blocks_count_lo)
+        + (u64::from(s_blocks_count_hi.unwrap_or(0)) << 32)
+        - u64::from(s_first_data_block) + u64::from(s_blocks_per_group) - 1)
+        / u64::from(s_blocks_per_group);
 
     let groups = ::block_groups::BlockGroups::new(
         &mut reader,
@@ -469,7 +471,7 @@ where
         let computed = ext4_style_crc32c_le(checksum_prefix.unwrap(), &data);
 
         if let Some(high) = i_checksum_hi {
-            let expected = (l_i_checksum_lo as u32) | ((high as u32) << 16);
+            let expected = u32::from(l_i_checksum_lo) | (u32::from(high) << 16);
             ensure!(
                 expected == computed,
                 AssumptionFailed(format!(
@@ -478,7 +480,7 @@ where
                 ))
             );
         } else {
-            let short_computed = computed as u16;
+            let short_computed = u16(computed & 0xFFFF).unwrap();
             ensure!(
                 l_i_checksum_lo == short_computed,
                 AssumptionFailed(format!(
@@ -498,7 +500,7 @@ where
     }
 
     if 0 != i_file_acl_lo || 0 != l_i_file_acl_high {
-        let block = i_file_acl_lo as u64 | ((l_i_file_acl_high as u64) << 32);
+        let block = u64::from(i_file_acl_lo) | (u64::from(l_i_file_acl_high) << 32);
 
         xattr_block(&mut xattrs, load_block(block)?, uuid_checksum, block)
             .chain_err(|| format!("loading xattr block {}", block))?
@@ -509,9 +511,9 @@ where
             UnsupportedFeature(format!("unexpected file type in mode: {:b}", i_mode))
         })?,
         file_mode: i_mode & 0b111_111_111_111,
-        uid: i_uid as u32 | ((l_i_uid_high as u32) << 16),
-        gid: i_gid as u32 | ((l_i_gid_high as u32) << 16),
-        size: (i_size_lo as u64) | ((i_size_high as u64) << 32),
+        uid: u32::from(i_uid) | (u32::from(l_i_uid_high) << 16),
+        gid: u32::from(i_gid) | (u32::from(l_i_gid_high) << 16),
+        size: u64::from(i_size_lo) | (u64::from(i_size_high) << 32),
         atime: Time {
             epoch_secs: i_atime,
             nanos: i_atime_extra,

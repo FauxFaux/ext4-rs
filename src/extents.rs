@@ -2,6 +2,7 @@ use std;
 use std::io;
 
 use cast::u32;
+use cast::u64;
 
 use errors::ErrorKind::*;
 use errors::Result;
@@ -105,15 +106,15 @@ where
                     extent.start as u64 * block_size + bytes_through_extent,
                 ))?;
                 let read = self.inner.read(&mut buf[0..to_read])?;
-                self.pos += read as u64;
+                self.pos += u64(read);
                 Ok(read)
             }
             FoundPart::Sparse(max) => {
-                let max_bytes = max as u64 * block_size;
+                let max_bytes = u64::from(max) * block_size;
                 let read = std::cmp::min(max_bytes, buf.len() as u64) as usize;
                 let read = std::cmp::min(read as u64, self.len - self.pos) as usize;
                 zero(&mut buf[0..read]);
-                self.pos += read as u64;
+                self.pos += u64(read);
                 Ok(read)
             }
         }
@@ -130,7 +131,7 @@ where
             io::SeekFrom::Current(diff) => self.pos = (self.pos as i64 + diff) as u64,
             io::SeekFrom::End(set) => {
                 assert!(set >= 0);
-                self.pos = self.len - set as u64
+                self.pos = self.len - u64(set).unwrap()
             }
         }
 
@@ -190,7 +191,7 @@ where
             let ee_len = read_le16(&raw_extent[4..]);
             let ee_start_hi = read_le16(&raw_extent[6..]);
             let ee_start_lo = read_le32(&raw_extent[8..]);
-            let ee_start = ee_start_lo as u64 + 0x1000 * ee_start_hi as u64;
+            let ee_start = u64::from(ee_start_lo) + 0x1000 * u64::from(ee_start_hi);
 
             extents.push(Extent {
                 part: ee_block,
@@ -207,7 +208,7 @@ where
         //            let ei_block = as_u32(extent_idx);
         let ei_leaf_lo = read_le32(&extent_idx[4..]);
         let ei_leaf_hi = read_le16(&extent_idx[8..]);
-        let ee_leaf: u64 = ei_leaf_lo as u64 + ((ei_leaf_hi as u64) << 32);
+        let ee_leaf: u64 = u64::from(ei_leaf_lo) + (u64::from(ei_leaf_hi) << 32);
         let data = load_block(ee_leaf)?;
         add_found_extents(
             load_block,
@@ -269,6 +270,8 @@ mod tests {
     use std::io;
     use std::io::Read;
 
+    use cast::u64;
+
     use extents::Extent;
     use extents::TreeReader;
 
@@ -280,7 +283,7 @@ mod tests {
         let mut reader = TreeReader::create(
             all_bytes,
             4,
-            size as u64,
+            u64(size),
             vec![
                 Extent {
                     part: 0,

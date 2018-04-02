@@ -59,7 +59,7 @@ where
         }
 
         println!("==> {} <==", path);
-        let to_read = std::cmp::min(inode.stat.size, bytes as u64) as usize;
+        let to_read = std::cmp::min(inode.stat.size, u64::from(bytes)) as usize;
         let mut buf = vec![0u8; to_read];
 
         fs.open(inode)?.read_exact(&mut buf)?;

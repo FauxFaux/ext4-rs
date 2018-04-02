@@ -31,6 +31,8 @@ use std::io::Read;
 use std::io::Seek;
 
 use byteorder::{LittleEndian, ReadBytesExt};
+use cast::u64;
+use cast::usize;
 
 mod block_groups;
 mod extents;
@@ -375,7 +377,7 @@ fn load_disc_bytes<R>(mut inner: R, block_size: u32, block: u64) -> Result<Vec<u
 where
     R: io::Read + io::Seek,
 {
-    inner.seek(io::SeekFrom::Start(block as u64 * block_size as u64))?;
+    inner.seek(io::SeekFrom::Start(block as u64 * u64::from(block_size)))?;
     let mut data = vec![0u8; block_size as usize];
     inner.read_exact(&mut data)?;
     Ok(data)
@@ -406,7 +408,7 @@ impl Inode {
 
             FileType::Directory => Enhanced::Directory(self.read_directory(inner)?),
             FileType::SymbolicLink => {
-                Enhanced::SymbolicLink(if self.stat.size < INODE_CORE_SIZE as u64 {
+                Enhanced::SymbolicLink(if self.stat.size < u64(INODE_CORE_SIZE) {
                     ensure!(
                         self.flags.is_empty(),
                         UnsupportedFeature(format!(
@@ -592,12 +594,12 @@ fn parse_error(msg: String) -> Error {
 pub fn usize_check(val: u64) -> Result<usize> {
     // this check only makes sense on non-64-bit platforms; on 64-bit usize == u64.
     ensure!(
-        val <= std::usize::MAX as u64,
+        val <= u64(std::usize::MAX),
         AssumptionFailed(format!(
             "value is too big for memory on this platform: {}",
             val
         ))
     );
 
-    Ok(val as usize)
+    Ok(usize(val))
 }
