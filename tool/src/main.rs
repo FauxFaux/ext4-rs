@@ -1,4 +1,5 @@
 extern crate bootsector;
+extern crate cast;
 extern crate clap;
 #[macro_use]
 extern crate error_chain;
@@ -10,6 +11,7 @@ use std::io;
 use std::io::Read;
 use std::io::Seek;
 
+use cast::u64;
 use clap::{App, Arg, SubCommand};
 
 use ext4::SuperBlock;
@@ -59,7 +61,7 @@ where
         }
 
         println!("==> {} <==", path);
-        let to_read = std::cmp::min(inode.stat.size, u64::from(bytes)) as usize;
+        let to_read = std::cmp::min(inode.stat.size, u64(bytes)) as usize;
         let mut buf = vec![0u8; to_read];
 
         fs.open(inode)?.read_exact(&mut buf)?;
