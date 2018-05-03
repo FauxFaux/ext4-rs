@@ -7,7 +7,6 @@ use std::io::Seek;
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
 use cast::u16;
 
-use Time;
 use crc;
 use errors::ErrorKind::*;
 use errors::Result;
@@ -15,6 +14,7 @@ use errors::*;
 use parse_error;
 use read_le16;
 use read_le32;
+use Time;
 
 const EXT4_SUPER_MAGIC: u16 = 0xEF53;
 const INODE_BASE_LEN: usize = 128;
