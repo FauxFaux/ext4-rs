@@ -1,9 +1,9 @@
 use std::io;
 
 use byteorder::{LittleEndian, ReadBytesExt};
+use failure::Error;
 
-use errors::ErrorKind::*;
-use errors::Result;
+use ParseError::*;
 
 const EXT4_BLOCK_GROUP_INODES_UNUSED: u16 = 0b1;
 const EXT4_BLOCK_GROUP_BLOCKS_UNUSED: u16 = 0b10;
@@ -30,7 +30,7 @@ impl BlockGroups {
         s_inodes_per_group: u32,
         block_size: u32,
         inode_size: u16,
-    ) -> Result<BlockGroups>
+    ) -> Result<BlockGroups, Error>
     where
         R: io::Read + io::Seek,
     {
@@ -143,8 +143,13 @@ impl BlockGroups {
         })
     }
 
-    pub fn index_of(&self, inode: u32) -> Result<u64> {
-        ensure!(0 != inode, NotFound("there is no inode zero".to_string()));
+    pub fn index_of(&self, inode: u32) -> Result<u64, Error> {
+        ensure!(
+            0 != inode,
+            NotFound {
+                reason: "there is no inode zero".to_string()
+            }
+        );
 
         let inode = inode - 1;
         let group_number = inode / self.inodes_per_group;
@@ -152,13 +157,15 @@ impl BlockGroups {
         let inode_index_in_group = inode % self.inodes_per_group;
         ensure!(
             inode_index_in_group < group.max_inode_number,
-            AssumptionFailed(format!(
-                "inode <{}> number must fit in group: {} is greater than {} for group {}",
-                inode + 1,
-                inode_index_in_group,
-                group.max_inode_number,
-                group_number
-            ))
+            AssumptionFailed {
+                reason: format!(
+                    "inode <{}> number must fit in group: {} is greater than {} for group {}",
+                    inode + 1,
+                    inode_index_in_group,
+                    group.max_inode_number,
+                    group_number
+                ),
+            }
         );
         let block = group.inode_table_block;
         Ok(block * u64::from(self.block_size)

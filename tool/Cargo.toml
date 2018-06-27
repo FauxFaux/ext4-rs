@@ -8,5 +8,5 @@ ext4 = { path = ".." }
 bootsector = "0.1"
 cast = "0.2"
 clap = "2"
-error-chain = "0.11"
+failure = "0.1"
 hexdump = "0.1"

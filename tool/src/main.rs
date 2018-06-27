@@ -1,9 +1,9 @@
 extern crate bootsector;
 extern crate cast;
 extern crate clap;
-#[macro_use]
-extern crate error_chain;
 extern crate ext4;
+#[macro_use]
+extern crate failure;
 extern crate hexdump;
 
 use std::fs;
@@ -12,25 +12,13 @@ use std::io::Read;
 use std::io::Seek;
 
 use cast::u64;
+use cast::usize;
 use clap::{App, Arg, SubCommand};
-
 use ext4::SuperBlock;
+use failure::Error;
+use failure::ResultExt;
 
-mod errors {
-    error_chain! {
-        links {
-            Ext4(::ext4::Error, ::ext4::ErrorKind);
-        }
-
-        foreign_links {
-            Io(::std::io::Error);
-        }
-    }
-}
-
-use errors::*;
-
-fn dump_ls<R>(mut fs: SuperBlock<R>) -> Result<()>
+fn dump_ls<R>(mut fs: SuperBlock<R>) -> Result<(), Error>
 where
     R: Read + Seek,
 {
@@ -45,7 +33,7 @@ where
     Ok(())
 }
 
-fn head_all<R>(mut fs: SuperBlock<R>, bytes: usize) -> Result<()>
+fn head_all<R>(mut fs: SuperBlock<R>, bytes: usize) -> Result<(), Error>
 where
     R: Read + Seek,
 {
@@ -61,7 +49,7 @@ where
         }
 
         println!("==> {} <==", path);
-        let to_read = std::cmp::min(inode.stat.size, u64(bytes)) as usize;
+        let to_read = usize(std::cmp::min(inode.stat.size, u64(bytes)));
         let mut buf = vec![0u8; to_read];
 
         fs.open(inode)?.read_exact(&mut buf)?;
@@ -76,7 +64,7 @@ where
     Ok(())
 }
 
-fn on_fs(file: &str, work: Command) -> Result<()> {
+fn on_fs(file: &str, work: Command) -> Result<(), Error> {
     let mut reader = io::BufReader::new(fs::File::open(file)?);
     match bootsector::list_partitions(&mut reader, &bootsector::Options::default()) {
         Ok(partitions) => for part in partitions {
@@ -90,9 +78,9 @@ fn on_fs(file: &str, work: Command) -> Result<()> {
     Ok(())
 }
 
-fn for_each_input(matches: &clap::ArgMatches, work: Command) -> Result<()> {
+fn for_each_input(matches: &clap::ArgMatches, work: Command) -> Result<(), Error> {
     let file = matches.value_of("file").unwrap();
-    on_fs(file, work).chain_err(|| format!("while processing '{}'", file))
+    Ok(on_fs(file, work).with_context(|_| format_err!("while processing '{}'", file))?)
 }
 
 #[derive(Copy, Clone, PartialEq, Eq)]
@@ -102,7 +90,7 @@ enum Command {
 }
 
 impl Command {
-    fn exec<R: Read + Seek>(self, fs: SuperBlock<R>) -> Result<()> {
+    fn exec<R: Read + Seek>(self, fs: SuperBlock<R>) -> Result<(), Error> {
         match self {
             Command::DumpLs => dump_ls(fs),
             Command::HeadAll { bytes } => head_all(fs, bytes),
@@ -110,7 +98,7 @@ impl Command {
     }
 }
 
-fn run() -> Result<()> {
+fn main() -> Result<(), Error> {
     let paths_arg = Arg::with_name("file").required(true);
 
     let matches = App::new("ext4tool")
@@ -144,5 +132,3 @@ fn run() -> Result<()> {
         (_, _) => unreachable!(),
     }
 }
-
-quick_main!(run);

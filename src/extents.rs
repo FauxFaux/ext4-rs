@@ -3,11 +3,11 @@ use std::io;
 
 use cast::u32;
 use cast::u64;
+use failure::Error;
 
-use errors::ErrorKind::*;
-use errors::Result;
 use read_le16;
 use read_le32;
+use ParseError::*;
 
 #[derive(Debug)]
 struct Extent {
@@ -35,7 +35,7 @@ where
         size: u64,
         core: [u8; ::INODE_CORE_SIZE],
         checksum_prefix: Option<u32>,
-    ) -> Result<TreeReader<R>> {
+    ) -> Result<TreeReader<R>, Error> {
         let extents = load_extent_tree(
             &mut |block| ::load_disc_bytes(&mut inner, block_size, block),
             core,
@@ -44,7 +44,12 @@ where
         TreeReader::create(inner, block_size, size, extents)
     }
 
-    fn create(inner: R, block_size: u32, size: u64, extents: Vec<Extent>) -> Result<TreeReader<R>> {
+    fn create(
+        inner: R,
+        block_size: u32,
+        size: u64,
+        extents: Vec<Extent>,
+    ) -> Result<TreeReader<R>, Error> {
         Ok(TreeReader {
             pos: 0,
             len: size,
@@ -148,13 +153,15 @@ fn add_found_extents<F>(
     extents: &mut Vec<Extent>,
     checksum_prefix: Option<u32>,
     first_level: bool,
-) -> Result<()>
+) -> Result<(), Error>
 where
-    F: FnMut(u64) -> Result<Vec<u8>>,
+    F: FnMut(u64) -> Result<Vec<u8>, Error>,
 {
     ensure!(
         0x0a == data[0] && 0xf3 == data[1],
-        AssumptionFailed("invalid extent magic".to_string())
+        AssumptionFailed {
+            reason: "invalid extent magic".to_string()
+        }
     );
 
     let extent_entries = read_le16(&data[2..]);
@@ -164,7 +171,9 @@ where
 
     ensure!(
         expected_depth == depth,
-        AssumptionFailed(format!("depth incorrect: {} != {}", expected_depth, depth))
+        AssumptionFailed {
+            reason: format!("depth incorrect: {} != {}", expected_depth, depth),
+        }
     );
 
     if !first_level && checksum_prefix.is_some() {
@@ -175,12 +184,14 @@ where
 
         ensure!(
             computed == on_disc,
-            AssumptionFailed(format!(
-                "extent checksum mismatch: {:08x} != {:08x} @ {}",
-                on_disc,
-                computed,
-                data.len()
-            ))
+            AssumptionFailed {
+                reason: format!(
+                    "extent checksum mismatch: {:08x} != {:08x} @ {}",
+                    on_disc,
+                    computed,
+                    data.len()
+                ),
+            }
         );
     }
 
@@ -227,13 +238,15 @@ fn load_extent_tree<F>(
     load_block: &mut F,
     core: [u8; ::INODE_CORE_SIZE],
     checksum_prefix: Option<u32>,
-) -> Result<Vec<Extent>>
+) -> Result<Vec<Extent>, Error>
 where
-    F: FnMut(u64) -> Result<Vec<u8>>,
+    F: FnMut(u64) -> Result<Vec<u8>, Error>,
 {
     ensure!(
         0x0a == core[0] && 0xf3 == core[1],
-        AssumptionFailed("invalid extent magic".to_string())
+        AssumptionFailed {
+            reason: "invalid extent magic".to_string()
+        }
     );
 
     let extent_entries = read_le16(&core[2..]);
@@ -242,7 +255,9 @@ where
 
     ensure!(
         depth <= 5,
-        AssumptionFailed(format!("initial depth too high: {}", depth))
+        AssumptionFailed {
+            reason: format!("initial depth too high: {}", depth),
+        }
     );
 
     let mut extents = Vec::with_capacity(extent_entries as usize + depth as usize * 200);

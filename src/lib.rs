@@ -23,7 +23,7 @@ extern crate byteorder;
 extern crate cast;
 extern crate crc;
 #[macro_use]
-extern crate error_chain;
+extern crate failure;
 
 use std::collections::HashMap;
 use std::io;
@@ -33,6 +33,8 @@ use std::io::Seek;
 use byteorder::{LittleEndian, ReadBytesExt};
 use cast::u64;
 use cast::usize;
+use failure::Error;
+use failure::ResultExt;
 
 mod block_groups;
 mod extents;
@@ -42,35 +44,39 @@ pub mod parse;
 
 use extents::TreeReader;
 
-mod errors {
-    error_chain! {
-        errors {
-            /// The filesystem doesn't meet the code's expectations;
-            /// maybe the code is wrong, maybe the filesystem is corrupt.
-            AssumptionFailed(t: String) {
-                description("programming error")
-                display("assumption failed: {}", t)
-            }
-            // The filesystem is valid, but requests a feature the code doesn't support.
-            UnsupportedFeature(t: String) {
-                description("filesystem uses an unsupported feature")
-                display("unsupported feature: {}", t)
-            }
-            // The request is for something which we are sure is not there.
-            NotFound(t: String) {
-                description("asked for something that we are sure does not exist")
-                display("not found: {}", t)
-            }
-        }
+#[derive(Debug, Fail)]
+enum ParseError {
+    /// The filesystem doesn't meet the code's expectations;
+    /// maybe the code is wrong, maybe the filesystem is corrupt.
+    #[fail(display = "assumption failed: {}", reason)]
+    AssumptionFailed { reason: String },
 
-        foreign_links {
-            Io(::std::io::Error);
-        }
+    /// The filesystem is valid, but requests a feature the code doesn't support.
+    #[fail(display = "filesystem uses an unsupported feature: {}", reason)]
+    UnsupportedFeature { reason: String },
+
+    /// The request is for something which we are sure is not there.
+    #[fail(display = "filesystem uses an unsupported feature: {}", reason)]
+    NotFound { reason: String },
+}
+
+fn AssumptionFailed<S: ToString>(reason: S) -> ParseError {
+    ParseError::AssumptionFailed {
+        reason: reason.to_string(),
     }
 }
 
-use errors::ErrorKind::*;
-pub use errors::*;
+fn UnsupportedFeature<S: ToString>(reason: S) -> ParseError {
+    ParseError::UnsupportedFeature {
+        reason: reason.to_string(),
+    }
+}
+
+fn NotFound<S: ToString>(reason: S) -> ParseError {
+    ParseError::NotFound {
+        reason: reason.to_string(),
+    }
+}
 
 bitflags! {
     pub struct InodeFlags: u32 {
@@ -237,19 +243,21 @@ where
     R: io::Read + io::Seek,
 {
     /// Open a filesystem, and load its superblock.
-    pub fn new(inner: R) -> Result<SuperBlock<R>> {
+    pub fn new(inner: R) -> Result<SuperBlock<R>, Error> {
         SuperBlock::new_with_options(inner, &Options::default())
     }
 
-    pub fn new_with_options(mut inner: R, options: &Options) -> Result<SuperBlock<R>> {
+    pub fn new_with_options(mut inner: R, options: &Options) -> Result<SuperBlock<R>, Error> {
         inner.seek(io::SeekFrom::Start(1024))?;
-        parse::superblock(inner, options).chain_err(|| "failed to parse superblock")
+        Ok(parse::superblock(inner, options)
+            .with_context(|_| format_err!("failed to parse superblock"))?)
     }
 
     /// Load a filesystem entry by inode number.
-    pub fn load_inode(&mut self, inode: u32) -> Result<Inode> {
-        let data = self.load_inode_bytes(inode)
-            .chain_err(|| format!("failed to find inode <{}> on disc", inode))?;
+    pub fn load_inode(&mut self, inode: u32) -> Result<Inode, Error> {
+        let data = self
+            .load_inode_bytes(inode)
+            .with_context(|_| format_err!("failed to find inode <{}> on disc", inode))?;
 
         let uuid_checksum = self.uuid_checksum;
         let parsed = parse::inode(
@@ -257,7 +265,7 @@ where
             |block| self.load_disc_bytes(block),
             uuid_checksum,
             inode,
-        ).chain_err(|| format!("failed to parse inode <{}>", inode))?;
+        ).with_context(|_| format_err!("failed to parse inode <{}>", inode))?;
 
         Ok(Inode {
             number: inode,
@@ -269,7 +277,7 @@ where
         })
     }
 
-    fn load_inode_bytes(&mut self, inode: u32) -> Result<Vec<u8>> {
+    fn load_inode_bytes(&mut self, inode: u32) -> Result<Vec<u8>, Error> {
         self.inner
             .seek(io::SeekFrom::Start(self.groups.index_of(inode)?))?;
         let mut data = vec![0u8; self.groups.inode_size as usize];
@@ -277,25 +285,29 @@ where
         Ok(data)
     }
 
-    fn load_disc_bytes(&mut self, block: u64) -> Result<Vec<u8>> {
+    fn load_disc_bytes(&mut self, block: u64) -> Result<Vec<u8>, Error> {
         load_disc_bytes(&mut self.inner, self.groups.block_size, block)
     }
 
     /// Load the root node of the filesystem (typically `/`).
-    pub fn root(&mut self) -> Result<Inode> {
-        self.load_inode(2).chain_err(|| "failed to load root inode")
+    pub fn root(&mut self) -> Result<Inode, Error> {
+        Ok(self
+            .load_inode(2)
+            .with_context(|_| format_err!("failed to load root inode"))?)
     }
 
     /// Visit every entry in the filesystem in an arbitrary order.
     /// The closure should return `true` if it wants walking to continue.
     /// The method returns `true` if the closure always returned true.
-    pub fn walk<F>(&mut self, inode: &Inode, path: String, visit: &mut F) -> Result<bool>
+    pub fn walk<F>(&mut self, inode: &Inode, path: String, visit: &mut F) -> Result<bool, Error>
     where
-        F: FnMut(&mut Self, &str, &Inode, &Enhanced) -> Result<bool>,
+        F: FnMut(&mut Self, &str, &Inode, &Enhanced) -> Result<bool, Error>,
     {
         let enhanced = inode.enhance(&mut self.inner)?;
 
-        if !visit(self, path.as_str(), inode, &enhanced).chain_err(|| "user closure failed")? {
+        if !visit(self, path.as_str(), inode, &enhanced)
+            .with_context(|_| format_err!("user closure failed"))?
+        {
             return Ok(false);
         }
 
@@ -305,10 +317,12 @@ where
                     continue;
                 }
 
-                let child_node = self.load_inode(entry.inode)
-                    .chain_err(|| format!("loading {} ({:?})", entry.name, entry.file_type))?;
-                if !self.walk(&child_node, format!("{}/{}", path, entry.name), visit)
-                    .chain_err(|| format!("processing '{}'", entry.name))?
+                let child_node = self.load_inode(entry.inode).with_context(|_| {
+                    format_err!("loading {} ({:?})", entry.name, entry.file_type)
+                })?;
+                if !self
+                    .walk(&child_node, format!("{}/{}", path, entry.name), visit)
+                    .with_context(|_| format_err!("processing '{}'", entry.name))?
                 {
                     return Ok(false);
                 }
@@ -323,7 +337,7 @@ where
 
     /// Parse a path, and find the directory entry it represents.
     /// Note that "/foo/../bar" will be treated literally, not resolved to "/bar" then looked up.
-    pub fn resolve_path(&mut self, path: &str) -> Result<DirEntry> {
+    pub fn resolve_path(&mut self, path: &str) -> Result<DirEntry, Error> {
         let path = path.trim_right_matches('/');
         if path.is_empty() {
             // this is a bit of a lie, but it works..?
@@ -350,7 +364,7 @@ where
         self.dir_entry_named(&curr, last)
     }
 
-    fn dir_entry_named(&mut self, inode: &Inode, name: &str) -> Result<DirEntry> {
+    fn dir_entry_named(&mut self, inode: &Inode, name: &str) -> Result<DirEntry, Error> {
         if let Enhanced::Directory(entries) = self.enhance(inode)? {
             if let Some(en) = entries.into_iter().find(|entry| entry.name == name) {
                 Ok(en)
@@ -363,17 +377,17 @@ where
     }
 
     /// Read the data from an inode. You might not want to call this on thigns that aren't regular files.
-    pub fn open(&mut self, inode: &Inode) -> Result<TreeReader<&mut R>> {
+    pub fn open(&mut self, inode: &Inode) -> Result<TreeReader<&mut R>, Error> {
         inode.reader(&mut self.inner)
     }
 
     /// Load extra metadata about some types of entries.
-    pub fn enhance(&mut self, inode: &Inode) -> Result<Enhanced> {
+    pub fn enhance(&mut self, inode: &Inode) -> Result<Enhanced, Error> {
         inode.enhance(&mut self.inner)
     }
 }
 
-fn load_disc_bytes<R>(mut inner: R, block_size: u32, block: u64) -> Result<Vec<u8>>
+fn load_disc_bytes<R>(mut inner: R, block_size: u32, block: u64) -> Result<Vec<u8>, Error>
 where
     R: io::Read + io::Seek,
 {
@@ -384,20 +398,20 @@ where
 }
 
 impl Inode {
-    fn reader<R>(&self, inner: R) -> Result<TreeReader<R>>
+    fn reader<R>(&self, inner: R) -> Result<TreeReader<R>, Error>
     where
         R: io::Read + io::Seek,
     {
-        TreeReader::new(
+        Ok(TreeReader::new(
             inner,
             self.block_size,
             self.stat.size,
             self.core,
             self.checksum_prefix,
-        ).chain_err(|| format!("opening inode <{}>", self.number))
+        ).with_context(|_| format_err!("opening inode <{}>", self.number))?)
     }
 
-    fn enhance<R>(&self, inner: R) -> Result<Enhanced>
+    fn enhance<R>(&self, inner: R) -> Result<Enhanced, Error>
     where
         R: io::Read + io::Seek,
     {
@@ -417,7 +431,7 @@ impl Inode {
                         ))
                     );
                     std::str::from_utf8(&self.core[0..self.stat.size as usize])
-                        .chain_err(|| "short symlink is invalid utf-8")?
+                        .with_context(|_| format_err!("short symlink is invalid utf-8"))?
                         .to_string()
                 } else {
                     ensure!(
@@ -428,7 +442,7 @@ impl Inode {
                         ))
                     );
                     std::str::from_utf8(&self.load_all(inner)?)
-                        .chain_err(|| "long symlink is invalid utf-8")?
+                        .with_context(|_| format_err!("long symlink is invalid utf-8"))?
                         .to_string()
                 })
             }
@@ -443,7 +457,7 @@ impl Inode {
         })
     }
 
-    fn load_all<R>(&self, inner: R) -> Result<Vec<u8>>
+    fn load_all<R>(&self, inner: R) -> Result<Vec<u8>, Error>
     where
         R: io::Read + io::Seek,
     {
@@ -455,7 +469,7 @@ impl Inode {
         Ok(ret)
     }
 
-    fn read_directory<R>(&self, inner: R) -> Result<Vec<DirEntry>>
+    fn read_directory<R>(&self, inner: R) -> Result<Vec<DirEntry>, Error>
     where
         R: io::Read + io::Seek,
     {
@@ -554,10 +568,18 @@ impl Inode {
 
     fn only_relevant_flag_is_extents(&self) -> bool {
         self.flags
-            & (InodeFlags::COMPR | InodeFlags::DIRTY | InodeFlags::COMPRBLK | InodeFlags::ENCRYPT
-                | InodeFlags::IMAGIC | InodeFlags::NOTAIL | InodeFlags::TOPDIR
-                | InodeFlags::HUGE_FILE | InodeFlags::EXTENTS | InodeFlags::EA_INODE
-                | InodeFlags::EOFBLOCKS | InodeFlags::INLINE_DATA) == InodeFlags::EXTENTS
+            & (InodeFlags::COMPR
+                | InodeFlags::DIRTY
+                | InodeFlags::COMPRBLK
+                | InodeFlags::ENCRYPT
+                | InodeFlags::IMAGIC
+                | InodeFlags::NOTAIL
+                | InodeFlags::TOPDIR
+                | InodeFlags::HUGE_FILE
+                | InodeFlags::EXTENTS
+                | InodeFlags::EA_INODE
+                | InodeFlags::EOFBLOCKS
+                | InodeFlags::INLINE_DATA) == InodeFlags::EXTENTS
     }
 }
 
@@ -568,7 +590,8 @@ fn load_maj_min(core: [u8; INODE_CORE_SIZE]) -> (u16, u32) {
         // if you think reading this is bad, I had to write it
         (
             u16::from(core[5]) | (u16::from(core[6] & 0b0000_1111) << 8),
-            u32::from(core[4]) | (u32::from(core[7]) << 12)
+            u32::from(core[4])
+                | (u32::from(core[7]) << 12)
                 | (u32::from(core[6] & 0b1111_0000) >> 4) << 8,
         )
     }
@@ -587,11 +610,11 @@ fn read_le32(from: &[u8]) -> u32 {
 }
 
 fn parse_error(msg: String) -> Error {
-    AssumptionFailed(msg).into()
+    ParseError::AssumptionFailed { reason: msg }.into()
 }
 
 #[allow(unknown_lints, absurd_extreme_comparisons)]
-pub fn usize_check(val: u64) -> Result<usize> {
+pub fn usize_check(val: u64) -> Result<usize, Error> {
     // this check only makes sense on non-64-bit platforms; on 64-bit usize == u64.
     ensure!(
         val <= u64(std::usize::MAX),

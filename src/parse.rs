@@ -6,15 +6,18 @@ use std::io::Seek;
 
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
 use cast::u16;
-
 use crc;
-use errors::ErrorKind::*;
-use errors::Result;
-use errors::*;
+use failure::Error;
+use failure::ResultExt;
+
 use parse_error;
 use read_le16;
 use read_le32;
+use AssumptionFailed;
+use NotFound;
+use ParseError::*;
 use Time;
+use UnsupportedFeature;
 
 const EXT4_SUPER_MAGIC: u16 = 0xEF53;
 const INODE_BASE_LEN: usize = 128;
@@ -70,7 +73,7 @@ bitflags! {
     }
 }
 
-pub fn superblock<R>(mut reader: R, options: &::Options) -> Result<::SuperBlock<R>>
+pub fn superblock<R>(mut reader: R, options: &::Options) -> Result<::SuperBlock<R>, Error>
 where
     R: io::Read + io::Seek,
 {
@@ -109,7 +112,9 @@ where
 
     ensure!(
         EXT4_SUPER_MAGIC == s_magic,
-        NotFound(format!("invalid magic number: {:x}", s_magic))
+        NotFound {
+            reason: format!("invalid magic number: {:x}", s_magic),
+        }
     );
 
     let s_state = inner.read_u16::<LittleEndian>()?; /* File system state */
@@ -157,9 +162,11 @@ where
             ))
         })?;
 
-    let supported_incompatible_features =
-        IncompatibleFeature::FILETYPE | IncompatibleFeature::EXTENTS | IncompatibleFeature::FLEX_BG
-            | IncompatibleFeature::RECOVER | IncompatibleFeature::SIXTY_FOUR_BIT;
+    let supported_incompatible_features = IncompatibleFeature::FILETYPE
+        | IncompatibleFeature::EXTENTS
+        | IncompatibleFeature::FLEX_BG
+        | IncompatibleFeature::RECOVER
+        | IncompatibleFeature::SIXTY_FOUR_BIT;
 
     if incompatible_features.intersects(!supported_incompatible_features) {
         return Err(parse_error(format!(
@@ -366,9 +373,9 @@ pub fn inode<F>(
     load_block: F,
     uuid_checksum: Option<u32>,
     number: u32,
-) -> Result<ParsedInode>
+) -> Result<ParsedInode, Error>
 where
-    F: FnOnce(u64) -> Result<Vec<u8>>,
+    F: FnOnce(u64) -> Result<Vec<u8>, Error>,
 {
     ensure!(
         data.len() >= INODE_BASE_LEN,
@@ -503,7 +510,7 @@ where
         let block = u64::from(i_file_acl_lo) | (u64::from(l_i_file_acl_high) << 32);
 
         xattr_block(&mut xattrs, load_block(block)?, uuid_checksum, block)
-            .chain_err(|| format!("loading xattr block {}", block))?
+            .with_context(|_| format_err!("loading xattr block {}", block))?
     }
 
     let stat = ::Stat {
@@ -548,7 +555,7 @@ fn xattr_block(
     mut data: Vec<u8>,
     uuid_checksum: Option<u32>,
     block_number: u64,
-) -> Result<()> {
+) -> Result<(), Error> {
     ensure!(
         data.len() > 0x20,
         AssumptionFailed("xattr block is way too short".to_string())
@@ -600,7 +607,7 @@ fn read_xattrs(
     xattrs: &mut HashMap<String, Vec<u8>>,
     mut reading: &[u8],
     block_offset_start: &[u8],
-) -> Result<()> {
+) -> Result<(), Error> {
     loop {
         ensure!(
             reading.len() > 0x10,
@@ -643,7 +650,8 @@ fn read_xattrs(
                     e_name_prefix_magic
                 ))),
             },
-            std::str::from_utf8(name_suffix).chain_err(|| "name is invalid utf-8")?
+            std::str::from_utf8(name_suffix)
+                .with_context(|_| format_err!("name is invalid utf-8"))?
         );
 
         let start = e_value_offset as usize;
