@@ -103,11 +103,11 @@ impl BlockGroups {
             //              inner.read_u16::<LittleEndian>()?; /* crc32c(s_uuid+grp_num+ibitmap) BE */
 
             if s_desc_size > 16 + 32 {
-                inner.seek(io::SeekFrom::Current((s_desc_size - 32 - 16) as i64))?;
+                inner.seek(io::SeekFrom::Current(i64::from(s_desc_size - 32 - 16)))?;
             }
 
             let inode_table_block =
-                u64::from(bg_inode_table_lo) | ((bg_inode_table_hi.unwrap_or(0) as u64) << 32);
+                u64::from(bg_inode_table_lo) | ((u64::from(bg_inode_table_hi.unwrap_or(0))) << 32);
             let free_inodes_count = u32::from(bg_free_inodes_count_lo)
                 | ((u32::from(bg_free_inodes_count_hi.unwrap_or(0))) << 16);
 
@@ -163,6 +163,6 @@ impl BlockGroups {
         );
         let block = group.inode_table_block;
         Ok(block * u64::from(self.block_size)
-            + u64::from(inode_index_in_group) * self.inode_size as u64)
+            + u64::from(inode_index_in_group) * u64::from(self.inode_size))
     }
 }

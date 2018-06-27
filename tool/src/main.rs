@@ -23,7 +23,7 @@ where
     R: Read + Seek,
 {
     let root = &fs.root()?;
-    fs.walk(root, "".to_string(), &mut |_, path, inode, enhanced| {
+    fs.walk(root, "", &mut |_, path, inode, enhanced| {
         println!(
             "<{}> {}: {:?} {:?}",
             inode.number, path, enhanced, inode.stat
@@ -38,7 +38,7 @@ where
     R: Read + Seek,
 {
     let root = fs.root()?;
-    fs.walk(&root, "".to_string(), &mut |fs, path, inode, _| {
+    fs.walk(&root, "", &mut |fs, path, inode, _| {
         if ext4::FileType::RegularFile != inode.stat.extracted_type {
             return Ok(true);
         }
@@ -80,7 +80,8 @@ fn on_fs(file: &str, work: Command) -> Result<(), Error> {
 
 fn for_each_input(matches: &clap::ArgMatches, work: Command) -> Result<(), Error> {
     let file = matches.value_of("file").unwrap();
-    Ok(on_fs(file, work).with_context(|_| format_err!("while processing '{}'", file))?)
+    on_fs(file, work).with_context(|_| format_err!("while processing '{}'", file))?;
+    Ok(())
 }
 
 #[derive(Copy, Clone, PartialEq, Eq)]

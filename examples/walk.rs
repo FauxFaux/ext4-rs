@@ -9,7 +9,7 @@ fn main() {
     options.checksums = ext4::Checksums::Enabled;
     let mut vol = ext4::SuperBlock::new_with_options(r, &options).expect("ext4 volume");
     let root = vol.root().expect("root");
-    vol.walk(&root, "/".to_string(), &mut |_, path, _, _| {
+    vol.walk(&root, "/", &mut |_, path, _, _| {
         println!("{}", path);
         Ok(true)
     }).expect("walk");

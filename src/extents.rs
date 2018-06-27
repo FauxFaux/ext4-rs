@@ -94,7 +94,7 @@ where
             return Ok(0);
         }
 
-        let block_size = self.block_size as u64;
+        let block_size = u64::from(self.block_size);
 
         let wanted_block = u32(self.pos / block_size).unwrap();
         let read_of_this_block = self.pos % block_size;
@@ -102,9 +102,9 @@ where
         match find_part(wanted_block, &self.extents) {
             FoundPart::Actual(extent) => {
                 let bytes_through_extent =
-                    (block_size * (wanted_block - extent.part) as u64) + read_of_this_block;
+                    (block_size * u64::from(wanted_block - extent.part)) + read_of_this_block;
                 let remaining_bytes_in_extent =
-                    (extent.len as u64 * block_size) - bytes_through_extent;
+                    (u64::from(extent.len) * block_size) - bytes_through_extent;
                 let to_read = std::cmp::min(remaining_bytes_in_extent, buf.len() as u64) as usize;
                 let to_read = std::cmp::min(to_read as u64, self.len - self.pos) as usize;
                 self.inner.seek(io::SeekFrom::Start(

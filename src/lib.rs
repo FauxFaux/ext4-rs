@@ -299,13 +299,13 @@ where
     /// Visit every entry in the filesystem in an arbitrary order.
     /// The closure should return `true` if it wants walking to continue.
     /// The method returns `true` if the closure always returned true.
-    pub fn walk<F>(&mut self, inode: &Inode, path: String, visit: &mut F) -> Result<bool, Error>
+    pub fn walk<F>(&mut self, inode: &Inode, path: &str, visit: &mut F) -> Result<bool, Error>
     where
         F: FnMut(&mut Self, &str, &Inode, &Enhanced) -> Result<bool, Error>,
     {
         let enhanced = inode.enhance(&mut self.inner)?;
 
-        if !visit(self, path.as_str(), inode, &enhanced)
+        if !visit(self, path, inode, &enhanced)
             .with_context(|_| format_err!("user closure failed"))?
         {
             return Ok(false);
@@ -321,7 +321,7 @@ where
                     format_err!("loading {} ({:?})", entry.name, entry.file_type)
                 })?;
                 if !self
-                    .walk(&child_node, format!("{}/{}", path, entry.name), visit)
+                    .walk(&child_node, &format!("{}/{}", path, entry.name), visit)
                     .with_context(|_| format_err!("processing '{}'", entry.name))?
                 {
                     return Ok(false);
@@ -555,7 +555,7 @@ impl Inode {
                 ensure!(
                     self.checksum_prefix.is_none(),
                     assumption_failed(
-                        "directory checksums are enabled but checksum record not found".to_string()
+                        "directory checksums are enabled but checksum record not found"
                     )
                 );
 

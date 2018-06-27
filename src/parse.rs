@@ -554,12 +554,12 @@ fn xattr_block(
 ) -> Result<(), Error> {
     ensure!(
         data.len() > 0x20,
-        assumption_failed("xattr block is way too short".to_string())
+        assumption_failed("xattr block is way too short")
     );
 
     ensure!(
         XATTR_MAGIC == read_le32(&data[0x00..0x04]),
-        assumption_failed("xattr block contained invalid magic number".to_string())
+        assumption_failed("xattr block contained invalid magic number")
     );
 
     //  let x_refcount    = read_le32(&data[0x04..0x08]);
@@ -607,7 +607,7 @@ fn read_xattrs(
     loop {
         ensure!(
             reading.len() > 0x10,
-            assumption_failed("out of block while reading xattr header".to_string())
+            assumption_failed("out of block while reading xattr header")
         );
 
         let e_name_len = reading[0x00];
@@ -626,7 +626,7 @@ fn read_xattrs(
 
         ensure!(
             reading.len() > end_of_name,
-            assumption_failed("out of block while reading xattr name".to_string())
+            assumption_failed("out of block while reading xattr name")
         );
 
         let name_suffix = &reading[0x10..end_of_name];
