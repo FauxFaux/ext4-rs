@@ -10,14 +10,13 @@ use crc;
 use failure::Error;
 use failure::ResultExt;
 
+use assumption_failed;
+use not_found;
 use parse_error;
 use read_le16;
 use read_le32;
-use AssumptionFailed;
-use NotFound;
-use ParseError::*;
+use unsupported_feature;
 use Time;
-use UnsupportedFeature;
 
 const EXT4_SUPER_MAGIC: u16 = 0xEF53;
 const INODE_BASE_LEN: usize = 128;
@@ -112,9 +111,7 @@ where
 
     ensure!(
         EXT4_SUPER_MAGIC == s_magic,
-        NotFound {
-            reason: format!("invalid magic number: {:x}", s_magic),
-        }
+        not_found(format!("invalid magic number: {:x}", s_magic))
     );
 
     let s_state = inner.read_u16::<LittleEndian>()?; /* File system state */
@@ -130,7 +127,7 @@ where
 
     ensure!(
         0 == s_creator_os,
-        UnsupportedFeature(format!(
+        unsupported_feature(format!(
             "only support filesystems created on linux, not '{}'",
             s_creator_os
         ))
@@ -188,14 +185,12 @@ where
     ensure!(
         !(has_checksums
             && compatible_features_read_only.contains(CompatibleFeatureReadOnly::GDT_CSUM)),
-        AssumptionFailed(
-            "metadata checksums are incompatible with the GDT checksum feature".to_string()
-        )
+        assumption_failed("metadata checksums are incompatible with the GDT checksum feature")
     );
 
     ensure!(
         has_checksums || ::Checksums::Required != options.checksums,
-        NotFound("checksums are disabled, but required by options".to_string())
+        not_found("checksums are disabled, but required by options")
     );
 
     let mut s_uuid = [0; 16];
@@ -270,7 +265,7 @@ where
         let expected = ext4_style_crc32c_le(!0, &inner.into_inner()[..(1024 - 4)]);
         ensure!(
             s_checksum == expected,
-            AssumptionFailed(format!(
+            assumption_failed(format!(
                 "superblock reports checksums supported, but didn't match: {:x} != {:x}",
                 s_checksum, expected
             ))
@@ -309,7 +304,7 @@ where
     if !long_structs {
         ensure!(
             0 == s_desc_size,
-            AssumptionFailed(format!(
+            assumption_failed(format!(
                 "outside long mode, block group desc size must be zero, not {}",
                 s_desc_size
             ))
@@ -318,7 +313,7 @@ where
 
     ensure!(
         1 == s_rev_level,
-        UnsupportedFeature(format!("rev level {}", s_rev_level))
+        unsupported_feature(format!("rev level {}", s_rev_level))
     );
 
     let group_table_pos = if 1024 == block_size {
@@ -379,7 +374,7 @@ where
 {
     ensure!(
         data.len() >= INODE_BASE_LEN,
-        AssumptionFailed("inode isn't bigger than the minimum length".to_string())
+        assumption_failed("inode isn't bigger than the minimum length")
     );
 
     // generated from inode.spec by structs.py
@@ -419,7 +414,7 @@ where
 
     ensure!(
         inode_end <= data.len(),
-        AssumptionFailed(format!(
+        assumption_failed(format!(
             "more extra inode ({}) than inode ({})",
             inode_end,
             data.len()
@@ -481,7 +476,7 @@ where
             let expected = u32::from(l_i_checksum_lo) | (u32::from(high) << 16);
             ensure!(
                 expected == computed,
-                AssumptionFailed(format!(
+                assumption_failed(format!(
                     "full checksum mismatch: on-disc: {:08x} computed: {:08x}",
                     expected, computed
                 ))
@@ -490,7 +485,7 @@ where
             let short_computed = u16(computed & 0xFFFF).unwrap();
             ensure!(
                 l_i_checksum_lo == short_computed,
-                AssumptionFailed(format!(
+                assumption_failed(format!(
                     "short checksum mismatch: on-disc: {:04x} computed: {:04x}",
                     l_i_checksum_lo, short_computed
                 ))
@@ -515,7 +510,7 @@ where
 
     let stat = ::Stat {
         extracted_type: ::FileType::from_mode(i_mode).ok_or_else(|| {
-            UnsupportedFeature(format!("unexpected file type in mode: {:b}", i_mode))
+            unsupported_feature(format!("unexpected file type in mode: {:b}", i_mode))
         })?,
         file_mode: i_mode & 0b111_111_111_111,
         uid: u32::from(i_uid) | (u32::from(l_i_uid_high) << 16),
@@ -543,8 +538,9 @@ where
 
     Ok(ParsedInode {
         stat,
-        flags: ::InodeFlags::from_bits(i_flags)
-            .ok_or_else(|| UnsupportedFeature(format!("unrecognised inode flags: {:b}", i_flags)))?,
+        flags: ::InodeFlags::from_bits(i_flags).ok_or_else(|| {
+            unsupported_feature(format!("unrecognised inode flags: {:b}", i_flags))
+        })?,
         core: i_block,
         checksum_prefix,
     })
@@ -558,12 +554,12 @@ fn xattr_block(
 ) -> Result<(), Error> {
     ensure!(
         data.len() > 0x20,
-        AssumptionFailed("xattr block is way too short".to_string())
+        assumption_failed("xattr block is way too short".to_string())
     );
 
     ensure!(
         XATTR_MAGIC == read_le32(&data[0x00..0x04]),
-        AssumptionFailed("xattr block contained invalid magic number".to_string())
+        assumption_failed("xattr block contained invalid magic number".to_string())
     );
 
     //  let x_refcount    = read_le32(&data[0x04..0x08]);
@@ -585,7 +581,7 @@ fn xattr_block(
         let computed = ext4_style_crc32c_le(base, &data);
         ensure!(
             x_checksum == computed,
-            AssumptionFailed(format!(
+            assumption_failed(format!(
                 "xattr block checksum invalid: on-disk: {:08x}, computed: {:08x}",
                 x_checksum, computed
             ))
@@ -594,7 +590,7 @@ fn xattr_block(
 
     ensure!(
         1 == x_blocks_used,
-        UnsupportedFeature(format!(
+        unsupported_feature(format!(
             "must have exactly one xattr block, not {}",
             x_blocks_used
         ))
@@ -611,7 +607,7 @@ fn read_xattrs(
     loop {
         ensure!(
             reading.len() > 0x10,
-            AssumptionFailed("out of block while reading xattr header".to_string())
+            assumption_failed("out of block while reading xattr header".to_string())
         );
 
         let e_name_len = reading[0x00];
@@ -630,7 +626,7 @@ fn read_xattrs(
 
         ensure!(
             reading.len() > end_of_name,
-            AssumptionFailed("out of block while reading xattr name".to_string())
+            assumption_failed("out of block while reading xattr name".to_string())
         );
 
         let name_suffix = &reading[0x10..end_of_name];
@@ -645,7 +641,7 @@ fn read_xattrs(
                 4 => "trusted.",
                 6 => "security.",
                 7 => "system.",
-                _ => bail!(UnsupportedFeature(format!(
+                _ => bail!(unsupported_feature(format!(
                     "unsupported name prefix encoding: {}",
                     e_name_prefix_magic
                 ))),
@@ -659,7 +655,7 @@ fn read_xattrs(
 
         ensure!(
             start <= block_offset_start.len() && end <= block_offset_start.len(),
-            AssumptionFailed(format!(
+            assumption_failed(format!(
                 "xattr value out of range: {}-{} > {}",
                 start,
                 end,

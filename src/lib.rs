@@ -45,7 +45,7 @@ pub mod parse;
 use extents::TreeReader;
 
 #[derive(Debug, Fail)]
-enum ParseError {
+pub enum ParseError {
     /// The filesystem doesn't meet the code's expectations;
     /// maybe the code is wrong, maybe the filesystem is corrupt.
     #[fail(display = "assumption failed: {}", reason)]
@@ -60,19 +60,19 @@ enum ParseError {
     NotFound { reason: String },
 }
 
-fn AssumptionFailed<S: ToString>(reason: S) -> ParseError {
+fn assumption_failed<S: ToString>(reason: S) -> ParseError {
     ParseError::AssumptionFailed {
         reason: reason.to_string(),
     }
 }
 
-fn UnsupportedFeature<S: ToString>(reason: S) -> ParseError {
+fn unsupported_feature<S: ToString>(reason: S) -> ParseError {
     ParseError::UnsupportedFeature {
         reason: reason.to_string(),
     }
 }
 
-fn NotFound<S: ToString>(reason: S) -> ParseError {
+fn not_found<S: ToString>(reason: S) -> ParseError {
     ParseError::NotFound {
         reason: reason.to_string(),
     }
@@ -369,10 +369,10 @@ where
             if let Some(en) = entries.into_iter().find(|entry| entry.name == name) {
                 Ok(en)
             } else {
-                Err(NotFound(format!("component {} isn't there", name)).into())
+                Err(not_found(format!("component {} isn't there", name)).into())
             }
         } else {
-            Err(NotFound(format!("component {} isn't a directory", name)).into())
+            Err(not_found(format!("component {} isn't a directory", name)).into())
         }
     }
 
@@ -425,7 +425,7 @@ impl Inode {
                 Enhanced::SymbolicLink(if self.stat.size < u64(INODE_CORE_SIZE) {
                     ensure!(
                         self.flags.is_empty(),
-                        UnsupportedFeature(format!(
+                        unsupported_feature(format!(
                             "symbolic links may not have flags: {:?}",
                             self.flags
                         ))
@@ -436,7 +436,7 @@ impl Inode {
                 } else {
                     ensure!(
                         self.only_relevant_flag_is_extents(),
-                        UnsupportedFeature(format!(
+                        unsupported_feature(format!(
                             "symbolic links may not have non-extent flags: {:?}",
                             self.flags
                         ))
@@ -479,7 +479,7 @@ impl Inode {
             // if the flags, minus irrelevant flags, isn't just EXTENTS...
             ensure!(
                 self.only_relevant_flag_is_extents(),
-                UnsupportedFeature(format!(
+                unsupported_feature(format!(
                     "inode with unsupported flags: {0:x} {0:b}",
                     self.flags
                 ))
@@ -498,7 +498,7 @@ impl Inode {
 
             ensure!(
                 rec_len > 8,
-                UnsupportedFeature(format!(
+                unsupported_feature(format!(
                     "directory record length is too short, {} must be > 8",
                     rec_len
                 ))
@@ -516,7 +516,7 @@ impl Inode {
                     inode: child_inode,
                     name: name.to_string(),
                     file_type: FileType::from_dir_hint(file_type).ok_or_else(|| {
-                        UnsupportedFeature(format!(
+                        unsupported_feature(format!(
                             "unexpected file type in directory: {}",
                             file_type
                         ))
@@ -531,7 +531,7 @@ impl Inode {
                         parse::ext4_style_crc32c_le(checksum_prefix, &cursor.into_inner()[0..read]);
                     ensure!(
                         expected == computed,
-                        AssumptionFailed(format!(
+                        assumption_failed(format!(
                             "directory checksum mismatch: on-disk: {:08x}, computed: {:08x}",
                             expected, computed
                         ))
@@ -549,12 +549,12 @@ impl Inode {
             if read >= total_len {
                 ensure!(
                     read == total_len,
-                    AssumptionFailed(format!("short read, {} != {}", read, total_len))
+                    assumption_failed(format!("short read, {} != {}", read, total_len))
                 );
 
                 ensure!(
                     self.checksum_prefix.is_none(),
-                    AssumptionFailed(
+                    assumption_failed(
                         "directory checksums are enabled but checksum record not found".to_string()
                     )
                 );
@@ -610,7 +610,7 @@ fn read_le32(from: &[u8]) -> u32 {
 }
 
 fn parse_error(msg: String) -> Error {
-    ParseError::AssumptionFailed { reason: msg }.into()
+    assumption_failed(msg).into()
 }
 
 #[allow(unknown_lints, absurd_extreme_comparisons)]
@@ -618,7 +618,7 @@ pub fn usize_check(val: u64) -> Result<usize, Error> {
     // this check only makes sense on non-64-bit platforms; on 64-bit usize == u64.
     ensure!(
         val <= u64(std::usize::MAX),
-        AssumptionFailed(format!(
+        assumption_failed(format!(
             "value is too big for memory on this platform: {}",
             val
         ))

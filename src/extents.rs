@@ -5,9 +5,9 @@ use cast::u32;
 use cast::u64;
 use failure::Error;
 
+use assumption_failed;
 use read_le16;
 use read_le32;
-use ParseError::*;
 
 #[derive(Debug)]
 struct Extent {
@@ -159,9 +159,7 @@ where
 {
     ensure!(
         0x0a == data[0] && 0xf3 == data[1],
-        AssumptionFailed {
-            reason: "invalid extent magic".to_string()
-        }
+        assumption_failed("invalid extent magic")
     );
 
     let extent_entries = read_le16(&data[2..]);
@@ -171,9 +169,7 @@ where
 
     ensure!(
         expected_depth == depth,
-        AssumptionFailed {
-            reason: format!("depth incorrect: {} != {}", expected_depth, depth),
-        }
+        assumption_failed(format!("depth incorrect: {} != {}", expected_depth, depth))
     );
 
     if !first_level && checksum_prefix.is_some() {
@@ -184,14 +180,12 @@ where
 
         ensure!(
             computed == on_disc,
-            AssumptionFailed {
-                reason: format!(
-                    "extent checksum mismatch: {:08x} != {:08x} @ {}",
-                    on_disc,
-                    computed,
-                    data.len()
-                ),
-            }
+            assumption_failed(format!(
+                "extent checksum mismatch: {:08x} != {:08x} @ {}",
+                on_disc,
+                computed,
+                data.len()
+            ),)
         );
     }
 
@@ -244,9 +238,7 @@ where
 {
     ensure!(
         0x0a == core[0] && 0xf3 == core[1],
-        AssumptionFailed {
-            reason: "invalid extent magic".to_string()
-        }
+        assumption_failed("invalid extent magic")
     );
 
     let extent_entries = read_le16(&core[2..]);
@@ -255,9 +247,7 @@ where
 
     ensure!(
         depth <= 5,
-        AssumptionFailed {
-            reason: format!("initial depth too high: {}", depth),
-        }
+        assumption_failed(format!("initial depth too high: {}", depth))
     );
 
     let mut extents = Vec::with_capacity(extent_entries as usize + depth as usize * 200);
