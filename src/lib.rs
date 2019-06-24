@@ -338,7 +338,7 @@ where
     /// Parse a path, and find the directory entry it represents.
     /// Note that "/foo/../bar" will be treated literally, not resolved to "/bar" then looked up.
     pub fn resolve_path(&mut self, path: &str) -> Result<DirEntry, Error> {
-        let path = path.trim_right_matches('/');
+        let path = path.trim_end_matches('/');
         if path.is_empty() {
             // this is a bit of a lie, but it works..?
             return Ok(DirEntry {
