@@ -674,7 +674,7 @@ fn read_xattrs(
 
 /// This is what the function in the ext4 code does, based on its results. I'm so sorry.
 pub fn ext4_style_crc32c_le(seed: u32, buf: &[u8]) -> u32 {
-    crc::crc32::update(seed ^ (!0), &crc::crc32::CASTAGNOLI_TABLE, buf) ^ (!0u32)
+    crc::crc32::update(seed ^ (!0), &crc::crc32::CASTAGNOLI_TABLE, buf, &crc::CalcType::Compat) ^ (!0u32)
 }
 
 #[cfg(test)]
