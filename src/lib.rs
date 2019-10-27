@@ -26,13 +26,12 @@ extern crate crc;
 extern crate failure;
 
 use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::io;
 use std::io::Read;
 use std::io::Seek;
 
 use byteorder::{LittleEndian, ReadBytesExt};
-use cast::u64;
-use cast::usize;
 use failure::Error;
 use failure::ResultExt;
 
@@ -424,7 +423,7 @@ impl Inode {
 
             FileType::Directory => Enhanced::Directory(self.read_directory(inner)?),
             FileType::SymbolicLink => {
-                Enhanced::SymbolicLink(if self.stat.size < u64(INODE_CORE_SIZE) {
+                Enhanced::SymbolicLink(if self.stat.size < u64::try_from(INODE_CORE_SIZE)? {
                     ensure!(
                         self.flags.is_empty(),
                         unsupported_feature(format!(
@@ -463,7 +462,7 @@ impl Inode {
     where
         R: io::Read + io::Seek,
     {
-        let size = usize_check(self.stat.size)?;
+        let size = usize::try_from(self.stat.size)?;
         let mut ret = vec![0u8; size];
 
         self.reader(inner)?.read_exact(&mut ret)?;
@@ -614,18 +613,4 @@ fn read_le32(from: &[u8]) -> u32 {
 
 fn parse_error(msg: String) -> Error {
     assumption_failed(msg).into()
-}
-
-#[allow(unknown_lints, absurd_extreme_comparisons)]
-pub fn usize_check(val: u64) -> Result<usize, Error> {
-    // this check only makes sense on non-64-bit platforms; on 64-bit usize == u64.
-    ensure!(
-        val <= u64(std::usize::MAX),
-        assumption_failed(format!(
-            "value is too big for memory on this platform: {}",
-            val
-        ))
-    );
-
-    Ok(usize(val))
 }

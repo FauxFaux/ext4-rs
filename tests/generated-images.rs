@@ -1,11 +1,11 @@
 extern crate bootsector;
 extern crate ext4;
 
+use std::convert::TryFrom;
 use std::fs;
 use std::io;
-use std::path;
-
 use std::io::Read;
+use std::path;
 
 #[test]
 fn all_types() {
@@ -39,7 +39,7 @@ fn all_types() {
                         inode.number, path, enhanced, inode.stat
                     );
                     if ext4::FileType::RegularFile == inode.stat.extracted_type {
-                        let expected_size = ext4::usize_check(inode.stat.size).unwrap();
+                        let expected_size = usize::try_from(inode.stat.size).unwrap();
                         let mut buf = Vec::with_capacity(expected_size);
                         fs.open(inode)?.read_to_end(&mut buf)?;
                         assert_eq!(expected_size, buf.len());

@@ -1,3 +1,4 @@
+use std::convert::TryFrom;
 use std::io;
 
 use byteorder::{LittleEndian, ReadBytesExt};
@@ -35,7 +36,7 @@ impl BlockGroups {
     where
         R: io::Read + io::Seek,
     {
-        let blocks_count = crate::usize_check(blocks_count)?;
+        let blocks_count = usize::try_from(blocks_count)?;
 
         let mut groups = Vec::with_capacity(blocks_count);
 
