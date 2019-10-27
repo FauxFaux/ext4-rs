@@ -1,11 +1,12 @@
 sudo: false
-dist: xenial
+dist: bionic
 
 language: rust
 rust:
   - nightly
   - beta
   - stable
+  - 1.34.2
 
 matrix:
   allow_failures:

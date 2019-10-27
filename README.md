@@ -31,8 +31,16 @@ I'm not especially interested in resource-constrained platforms: memory and IO a
 
 ## Changelog
 
+ * `0.7.0`: use `rust 1.34` features to remove `cast` dependency
+ * `0.6.0`: use `failure` for error handling
  * `0.5.0`: update `bitflags` for associated constants, and rename some public constants.
  * `0.4.1`: fix for an infinite loop parsing directory entries
+
+
+## MSRV
+
+Rust 1.34 (`TryFrom`) is supported, and checked by Travis.
+Updating this is a semver bump.
 
 
 ## Development
