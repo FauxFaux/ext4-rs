@@ -1,8 +1,6 @@
-use std;
+use std::convert::TryFrom;
 use std::io;
 
-use cast::u32;
-use cast::u64;
 use failure::Error;
 
 use crate::assumption_failed;
@@ -96,7 +94,7 @@ where
 
         let block_size = u64::from(self.block_size);
 
-        let wanted_block = u32(self.pos / block_size).unwrap();
+        let wanted_block = u32::try_from(self.pos / block_size).unwrap();
         let read_of_this_block = self.pos % block_size;
 
         match find_part(wanted_block, &self.extents) {
@@ -111,7 +109,7 @@ where
                     extent.start as u64 * block_size + bytes_through_extent,
                 ))?;
                 let read = self.inner.read(&mut buf[0..to_read])?;
-                self.pos += u64(read);
+                self.pos += u64::try_from(read).expect("infallible u64 conversion");
                 Ok(read)
             }
             FoundPart::Sparse(max) => {
@@ -119,7 +117,7 @@ where
                 let read = std::cmp::min(max_bytes, buf.len() as u64) as usize;
                 let read = std::cmp::min(read as u64, self.len - self.pos) as usize;
                 zero(&mut buf[0..read]);
-                self.pos += u64(read);
+                self.pos += u64::try_from(read).expect("infallible u64 conversion");
                 Ok(read)
             }
         }
@@ -136,7 +134,7 @@ where
             io::SeekFrom::Current(diff) => self.pos = (self.pos as i64 + diff) as u64,
             io::SeekFrom::End(set) => {
                 assert!(set >= 0);
-                self.pos = self.len - u64(set).unwrap()
+                self.pos = self.len - u64::try_from(set).unwrap()
             }
         }
 
@@ -272,10 +270,9 @@ fn zero(buf: &mut [u8]) {
 
 #[cfg(test)]
 mod tests {
+    use std::convert::TryFrom;
     use std::io;
     use std::io::Read;
-
-    use cast::u64;
 
     use crate::extents::Extent;
     use crate::extents::TreeReader;
@@ -288,7 +285,7 @@ mod tests {
         let mut reader = TreeReader::create(
             all_bytes,
             4,
-            u64(size),
+            u64::try_from(size).expect("infallible u64 conversion"),
             vec![
                 Extent {
                     part: 0,

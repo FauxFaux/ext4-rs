@@ -11,8 +11,6 @@ use std::io;
 use std::io::Read;
 use std::io::Seek;
 
-use cast::u64;
-use cast::usize;
 use clap::{App, Arg, SubCommand};
 use ext4::SuperBlock;
 use failure::Error;

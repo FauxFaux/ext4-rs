@@ -21,7 +21,6 @@ repository = "FauxFaux/ext4-rs"
 [dependencies]
 bitflags = "1"
 byteorder = "1"
-cast = "0.2"
 crc = "1"
 failure = "0.1"
 

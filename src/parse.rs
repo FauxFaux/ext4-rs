@@ -1,11 +1,11 @@
 use std;
 use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::io;
 use std::io::Read;
 use std::io::Seek;
 
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
-use cast::u16;
 use crc;
 use failure::Error;
 use failure::ResultExt;
@@ -483,7 +483,7 @@ where
                 ))
             );
         } else {
-            let short_computed = u16(computed & 0xFFFF).unwrap();
+            let short_computed = u16::try_from(computed & 0xFFFF).unwrap();
             ensure!(
                 l_i_checksum_lo == short_computed,
                 assumption_failed(format!(

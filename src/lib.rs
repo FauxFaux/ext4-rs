@@ -20,7 +20,6 @@ file on the filesystem. You can grant yourself temporary access with
 #[macro_use]
 extern crate bitflags;
 extern crate byteorder;
-extern crate cast;
 extern crate crc;
 #[macro_use]
 extern crate failure;
