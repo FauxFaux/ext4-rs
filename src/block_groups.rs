@@ -3,8 +3,8 @@ use std::io;
 use byteorder::{LittleEndian, ReadBytesExt};
 use failure::Error;
 
-use assumption_failed;
-use not_found;
+use crate::assumption_failed;
+use crate::not_found;
 
 const EXT4_BLOCK_GROUP_INODES_UNUSED: u16 = 0b1;
 const EXT4_BLOCK_GROUP_BLOCKS_UNUSED: u16 = 0b10;
@@ -35,7 +35,7 @@ impl BlockGroups {
     where
         R: io::Read + io::Seek,
     {
-        let blocks_count = ::usize_check(blocks_count)?;
+        let blocks_count = crate::usize_check(blocks_count)?;
 
         let mut groups = Vec::with_capacity(blocks_count);
 
@@ -114,7 +114,7 @@ impl BlockGroups {
                 || bg_flags & EXT4_BLOCK_GROUP_BLOCKS_UNUSED != 0;
 
             if free_inodes_count > s_inodes_per_group {
-                return Err(::parse_error(format!(
+                return Err(crate::parse_error(format!(
                     "too many free inodes in group {}: {} > {}",
                     block, free_inodes_count, s_inodes_per_group
                 )));

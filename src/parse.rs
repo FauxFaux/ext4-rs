@@ -10,13 +10,13 @@ use crc;
 use failure::Error;
 use failure::ResultExt;
 
-use assumption_failed;
-use not_found;
-use parse_error;
-use read_le16;
-use read_le32;
-use unsupported_feature;
-use Time;
+use crate::assumption_failed;
+use crate::not_found;
+use crate::parse_error;
+use crate::read_le16;
+use crate::read_le32;
+use crate::unsupported_feature;
+use crate::Time;
 
 const EXT4_SUPER_MAGIC: u16 = 0xEF53;
 const INODE_BASE_LEN: usize = 128;
@@ -72,7 +72,7 @@ bitflags! {
     }
 }
 
-pub fn superblock<R>(mut reader: R, options: &::Options) -> Result<::SuperBlock<R>, Error>
+pub fn superblock<R>(mut reader: R, options: &crate::Options) -> Result<crate::SuperBlock<R>, Error>
 where
     R: io::Read + io::Seek,
 {
@@ -189,7 +189,7 @@ where
     );
 
     ensure!(
-        has_checksums || ::Checksums::Required != options.checksums,
+        has_checksums || crate::Checksums::Required != options.checksums,
         not_found("checksums are disabled, but required by options")
     );
 
@@ -334,7 +334,7 @@ where
         - 1)
         / u64::from(s_blocks_per_group);
 
-    let groups = ::block_groups::BlockGroups::new(
+    let groups = crate::block_groups::BlockGroups::new(
         &mut reader,
         blocks_count,
         s_desc_size,
@@ -350,7 +350,7 @@ where
         None
     };
 
-    Ok(::SuperBlock {
+    Ok(crate::SuperBlock {
         inner: reader,
         load_xattrs,
         uuid_checksum,
@@ -359,9 +359,9 @@ where
 }
 
 pub struct ParsedInode {
-    pub stat: ::Stat,
-    pub flags: ::InodeFlags,
-    pub core: [u8; ::INODE_CORE_SIZE],
+    pub stat: crate::Stat,
+    pub flags: crate::InodeFlags,
+    pub core: [u8; crate::INODE_CORE_SIZE],
     pub checksum_prefix: Option<u32>,
 }
 
@@ -393,7 +393,7 @@ where
     let i_flags = read_le32(&data[0x20..0x24]); /* File flags */
     //    let l_i_version       = read_le32(&data[0x24..0x28]);
 
-    let mut i_block = [0u8; ::INODE_CORE_SIZE];
+    let mut i_block = [0u8; crate::INODE_CORE_SIZE];
     i_block.clone_from_slice(&data[0x28..0x64]); /* Pointers to blocks */
 
     let i_generation = read_le32(&data[0x64..0x68]); /* File version (for NFS) */
@@ -509,8 +509,8 @@ where
             .with_context(|_| format_err!("loading xattr block {}", block))?
     }
 
-    let stat = ::Stat {
-        extracted_type: ::FileType::from_mode(i_mode).ok_or_else(|| {
+    let stat = crate::Stat {
+        extracted_type: crate::FileType::from_mode(i_mode).ok_or_else(|| {
             unsupported_feature(format!("unexpected file type in mode: {:b}", i_mode))
         })?,
         file_mode: i_mode & 0b111_111_111_111,
@@ -539,7 +539,7 @@ where
 
     Ok(ParsedInode {
         stat,
-        flags: ::InodeFlags::from_bits(i_flags).ok_or_else(|| {
+        flags: crate::InodeFlags::from_bits(i_flags).ok_or_else(|| {
             unsupported_feature(format!("unrecognised inode flags: {:b}", i_flags))
         })?,
         core: i_block,

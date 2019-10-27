@@ -42,7 +42,7 @@ mod extents;
 /// Raw object parsing API. Not versioned / supported.
 pub mod parse;
 
-use extents::TreeReader;
+use crate::extents::TreeReader;
 
 #[derive(Debug, Fail)]
 pub enum ParseError {

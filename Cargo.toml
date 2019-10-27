@@ -13,6 +13,8 @@ readme = "README.md"
 repository = "https://github.com/FauxFaux/ext4-rs"
 version = "0.6.0"
 
+edition = "2018"
+
 [badges.travis-ci]
 repository = "FauxFaux/ext4-rs"
 

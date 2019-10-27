@@ -5,9 +5,9 @@ use cast::u32;
 use cast::u64;
 use failure::Error;
 
-use assumption_failed;
-use read_le16;
-use read_le32;
+use crate::assumption_failed;
+use crate::read_le16;
+use crate::read_le32;
 
 #[derive(Debug)]
 struct Extent {
@@ -33,11 +33,11 @@ where
         mut inner: R,
         block_size: u32,
         size: u64,
-        core: [u8; ::INODE_CORE_SIZE],
+        core: [u8; crate::INODE_CORE_SIZE],
         checksum_prefix: Option<u32>,
     ) -> Result<TreeReader<R>, Error> {
         let extents = load_extent_tree(
-            &mut |block| ::load_disc_bytes(&mut inner, block_size, block),
+            &mut |block| crate::load_disc_bytes(&mut inner, block_size, block),
             core,
             checksum_prefix,
         )?;
@@ -176,7 +176,7 @@ where
         let end_of_entries = data.len() - 4;
         let on_disc = read_le32(&data[end_of_entries..(end_of_entries + 4)]);
         let computed =
-            ::parse::ext4_style_crc32c_le(checksum_prefix.unwrap(), &data[..end_of_entries]);
+            crate::parse::ext4_style_crc32c_le(checksum_prefix.unwrap(), &data[..end_of_entries]);
 
         ensure!(
             computed == on_disc,
@@ -230,7 +230,7 @@ where
 
 fn load_extent_tree<F>(
     load_block: &mut F,
-    core: [u8; ::INODE_CORE_SIZE],
+    core: [u8; crate::INODE_CORE_SIZE],
     checksum_prefix: Option<u32>,
 ) -> Result<Vec<Extent>, Error>
 where
@@ -277,8 +277,8 @@ mod tests {
 
     use cast::u64;
 
-    use extents::Extent;
-    use extents::TreeReader;
+    use crate::extents::Extent;
+    use crate::extents::TreeReader;
 
     #[test]
     fn simple_tree() {
@@ -314,7 +314,7 @@ mod tests {
     fn zero_buf() {
         let mut buf = [7u8; 5];
         assert_eq!(7, buf[0]);
-        ::extents::zero(&mut buf);
+        crate::extents::zero(&mut buf);
         for i in &buf {
             assert_eq!(0, *i);
         }
