@@ -301,7 +301,8 @@ mod tests {
                     len: 2,
                 },
             ],
-        ).unwrap();
+        )
+        .unwrap();
 
         let mut res = Vec::new();
         assert_eq!(size, reader.read_to_end(&mut res).unwrap());

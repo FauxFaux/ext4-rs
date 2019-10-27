@@ -265,7 +265,8 @@ where
             |block| self.load_disc_bytes(block),
             uuid_checksum,
             inode,
-        ).with_context(|_| format_err!("failed to parse inode <{}>", inode))?;
+        )
+        .with_context(|_| format_err!("failed to parse inode <{}>", inode))?;
 
         Ok(Inode {
             number: inode,
@@ -408,7 +409,8 @@ impl Inode {
             self.stat.size,
             self.core,
             self.checksum_prefix,
-        ).with_context(|_| format_err!("opening inode <{}>", self.number))?)
+        )
+        .with_context(|_| format_err!("opening inode <{}>", self.number))?)
     }
 
     fn enhance<R>(&self, inner: R) -> Result<Enhanced, Error>
@@ -579,7 +581,8 @@ impl Inode {
                 | InodeFlags::EXTENTS
                 | InodeFlags::EA_INODE
                 | InodeFlags::EOFBLOCKS
-                | InodeFlags::INLINE_DATA) == InodeFlags::EXTENTS
+                | InodeFlags::INLINE_DATA)
+            == InodeFlags::EXTENTS
     }
 }
 

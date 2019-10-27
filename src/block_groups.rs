@@ -101,7 +101,6 @@ impl BlockGroups {
             //              inner.read_u16::<LittleEndian>()?; /* crc32c(s_uuid+grp_num+bbitmap) BE */
             //          let bg_inode_bitmap_csum_hi =
             //              inner.read_u16::<LittleEndian>()?; /* crc32c(s_uuid+grp_num+ibitmap) BE */
-
             if s_desc_size > 16 + 32 {
                 inner.seek(io::SeekFrom::Current(i64::from(s_desc_size - 32 - 16)))?;
             }

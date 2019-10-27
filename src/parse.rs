@@ -329,7 +329,9 @@ where
     reader.seek(io::SeekFrom::Start(u64::from(group_table_pos)))?;
     let blocks_count = (u64::from(s_blocks_count_lo)
         + (u64::from(s_blocks_count_hi.unwrap_or(0)) << 32)
-        - u64::from(s_first_data_block) + u64::from(s_blocks_per_group) - 1)
+        - u64::from(s_first_data_block)
+        + u64::from(s_blocks_per_group)
+        - 1)
         / u64::from(s_blocks_per_group);
 
     let groups = ::block_groups::BlockGroups::new(
@@ -453,7 +455,6 @@ where
     }; /* extra FileCreationtime (nsec << 2 | epoch) */
     //    let i_version_hi      = if i_extra_isize < 26 { None } else { Some(read_le32(&data[0x98..0x9C])) }; /* high 32 bits for 64-bit version */
     //    let i_projid          = if i_extra_isize < 30 { None } else { Some(read_le32(&data[0x9C..0xA0])) }; /* Project ID */
-
     let mut checksum_prefix = None;
 
     if let Some(uuid_checksum) = uuid_checksum {

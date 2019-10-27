@@ -9,13 +9,11 @@ fn extract_test_images() -> io::Result<()> {
         return Ok(());
     }
 
-    assert!(
-        process::Command::new("tar")
-            .args(&["-C", DEST, "-xf", "scripts/generate-images/images.tgz"])
-            .spawn()?
-            .wait()?
-            .success()
-    );
+    assert!(process::Command::new("tar")
+        .args(&["-C", DEST, "-xf", "scripts/generate-images/images.tgz"])
+        .spawn()?
+        .wait()?
+        .success());
 
     Ok(())
 }

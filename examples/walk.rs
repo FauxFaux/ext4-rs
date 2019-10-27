@@ -12,5 +12,6 @@ fn main() {
     vol.walk(&root, "/", &mut |_, path, _, _| {
         println!("{}", path);
         Ok(true)
-    }).expect("walk");
+    })
+    .expect("walk");
 }
