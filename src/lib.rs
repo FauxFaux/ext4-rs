@@ -17,22 +17,18 @@ file on the filesystem. You can grant yourself temporary access with
 `sudo setfacl -m u:${USER}:r /dev/sda1`, if you so fancy. This will be lost at reboot.
 */
 
-#[macro_use]
-extern crate bitflags;
-extern crate byteorder;
-extern crate crc;
-#[macro_use]
-extern crate failure;
-
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::io;
 use std::io::Read;
 use std::io::Seek;
 
+use anyhow::anyhow;
+use anyhow::ensure;
+use anyhow::Context;
+use anyhow::Error;
+use bitflags::bitflags;
 use byteorder::{LittleEndian, ReadBytesExt};
-use failure::Error;
-use failure::ResultExt;
 
 mod block_groups;
 mod extents;
@@ -42,19 +38,19 @@ pub mod parse;
 
 use crate::extents::TreeReader;
 
-#[derive(Debug, Fail)]
+#[derive(Debug, thiserror::Error)]
 pub enum ParseError {
     /// The filesystem doesn't meet the code's expectations;
     /// maybe the code is wrong, maybe the filesystem is corrupt.
-    #[fail(display = "assumption failed: {}", reason)]
+    #[error("assumption failed: {reason:?}")]
     AssumptionFailed { reason: String },
 
     /// The filesystem is valid, but requests a feature the code doesn't support.
-    #[fail(display = "filesystem uses an unsupported feature: {}", reason)]
+    #[error("filesystem uses an unsupported feature: {reason:?}")]
     UnsupportedFeature { reason: String },
 
     /// The request is for something which we are sure is not there.
-    #[fail(display = "filesystem uses an unsupported feature: {}", reason)]
+    #[error("filesystem uses an unsupported feature: {reason:?}")]
     NotFound { reason: String },
 }
 
@@ -248,14 +244,14 @@ where
     pub fn new_with_options(mut inner: R, options: &Options) -> Result<SuperBlock<R>, Error> {
         inner.seek(io::SeekFrom::Start(1024))?;
         Ok(parse::superblock(inner, options)
-            .with_context(|_| format_err!("failed to parse superblock"))?)
+            .with_context(|| anyhow!("failed to parse superblock"))?)
     }
 
     /// Load a filesystem entry by inode number.
     pub fn load_inode(&mut self, inode: u32) -> Result<Inode, Error> {
         let data = self
             .load_inode_bytes(inode)
-            .with_context(|_| format_err!("failed to find inode <{}> on disc", inode))?;
+            .with_context(|| anyhow!("failed to find inode <{}> on disc", inode))?;
 
         let uuid_checksum = self.uuid_checksum;
         let parsed = parse::inode(
@@ -264,7 +260,7 @@ where
             uuid_checksum,
             inode,
         )
-        .with_context(|_| format_err!("failed to parse inode <{}>", inode))?;
+        .with_context(|| anyhow!("failed to parse inode <{}>", inode))?;
 
         Ok(Inode {
             number: inode,
@@ -292,7 +288,7 @@ where
     pub fn root(&mut self) -> Result<Inode, Error> {
         Ok(self
             .load_inode(2)
-            .with_context(|_| format_err!("failed to load root inode"))?)
+            .with_context(|| anyhow!("failed to load root inode"))?)
     }
 
     /// Visit every entry in the filesystem in an arbitrary order.
@@ -304,9 +300,7 @@ where
     {
         let enhanced = inode.enhance(&mut self.inner)?;
 
-        if !visit(self, path, inode, &enhanced)
-            .with_context(|_| format_err!("user closure failed"))?
-        {
+        if !visit(self, path, inode, &enhanced).with_context(|| anyhow!("user closure failed"))? {
             return Ok(false);
         }
 
@@ -316,12 +310,12 @@ where
                     continue;
                 }
 
-                let child_node = self.load_inode(entry.inode).with_context(|_| {
-                    format_err!("loading {} ({:?})", entry.name, entry.file_type)
-                })?;
+                let child_node = self
+                    .load_inode(entry.inode)
+                    .with_context(|| anyhow!("loading {} ({:?})", entry.name, entry.file_type))?;
                 if !self
                     .walk(&child_node, &format!("{}/{}", path, entry.name), visit)
-                    .with_context(|_| format_err!("processing '{}'", entry.name))?
+                    .with_context(|| anyhow!("processing '{}'", entry.name))?
                 {
                     return Ok(false);
                 }
@@ -408,7 +402,7 @@ impl Inode {
             self.core,
             self.checksum_prefix,
         )
-        .with_context(|_| format_err!("opening inode <{}>", self.number))?)
+        .with_context(|| anyhow!("opening inode <{}>", self.number))?)
     }
 
     fn enhance<R>(&self, inner: R) -> Result<Enhanced, Error>
@@ -431,7 +425,7 @@ impl Inode {
                         ))
                     );
                     std::str::from_utf8(&self.core[0..self.stat.size as usize])
-                        .with_context(|_| format_err!("short symlink is invalid utf-8"))?
+                        .with_context(|| anyhow!("short symlink is invalid utf-8"))?
                         .to_string()
                 } else {
                     ensure!(
@@ -442,7 +436,7 @@ impl Inode {
                         ))
                     );
                     std::str::from_utf8(&self.load_all(inner)?)
-                        .with_context(|_| format_err!("long symlink is invalid utf-8"))?
+                        .with_context(|| anyhow!("long symlink is invalid utf-8"))?
                         .to_string()
                 })
             }

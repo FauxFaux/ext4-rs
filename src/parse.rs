@@ -5,10 +5,15 @@ use std::io;
 use std::io::Read;
 use std::io::Seek;
 
+use anyhow::anyhow;
+use anyhow::bail;
+use anyhow::ensure;
+use anyhow::Context;
+use anyhow::Error;
+use bitflags::bitflags;
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
+
 use crc;
-use failure::Error;
-use failure::ResultExt;
 
 use crate::assumption_failed;
 use crate::not_found;
@@ -506,7 +511,7 @@ where
         let block = u64::from(i_file_acl_lo) | (u64::from(l_i_file_acl_high) << 32);
 
         xattr_block(&mut xattrs, load_block(block)?, uuid_checksum, block)
-            .with_context(|_| format_err!("loading xattr block {}", block))?
+            .with_context(|| anyhow!("loading xattr block {}", block))?
     }
 
     let stat = crate::Stat {
@@ -647,8 +652,7 @@ fn read_xattrs(
                     e_name_prefix_magic
                 ))),
             },
-            std::str::from_utf8(name_suffix)
-                .with_context(|_| format_err!("name is invalid utf-8"))?
+            std::str::from_utf8(name_suffix).with_context(|| anyhow!("name is invalid utf-8"))?
         );
 
         let start = e_value_offset as usize;

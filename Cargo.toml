@@ -19,10 +19,11 @@ edition = "2018"
 repository = "FauxFaux/ext4-rs"
 
 [dependencies]
+anyhow = "1"
 bitflags = "1"
 byteorder = "1"
 crc = "1"
-failure = "0.1"
+thiserror = "1"
 
 [dev-dependencies]
 bootsector = "0.1"

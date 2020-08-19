@@ -1,7 +1,8 @@
 use std::convert::TryFrom;
 use std::io;
 
-use failure::Error;
+use anyhow::ensure;
+use anyhow::Error;
 
 use crate::assumption_failed;
 use crate::read_le16;

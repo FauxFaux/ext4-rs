@@ -13,8 +13,8 @@ use std::io::Seek;
 
 use clap::{App, Arg, SubCommand};
 use ext4::SuperBlock;
-use failure::Error;
-use failure::ResultExt;
+use anyhow::Error;
+use anyhow::Context;
 
 fn dump_ls<R>(mut fs: SuperBlock<R>) -> Result<(), Error>
 where
@@ -78,7 +78,7 @@ fn on_fs(file: &str, work: Command) -> Result<(), Error> {
 
 fn for_each_input(matches: &clap::ArgMatches, work: Command) -> Result<(), Error> {
     let file = matches.value_of("file").unwrap();
-    on_fs(file, work).with_context(|_| format_err!("while processing '{}'", file))?;
+    on_fs(file, work).with_context(|| anyhow!("while processing '{}'", file))?;
     Ok(())
 }
 
