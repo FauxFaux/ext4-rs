@@ -23,6 +23,7 @@ anyhow = "1"
 bitflags = "1"
 byteorder = "1"
 crc = "1"
+positioned-io = "0.2"
 thiserror = "1"
 
 [dev-dependencies]

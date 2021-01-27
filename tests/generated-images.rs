@@ -17,7 +17,7 @@ fn all_types() {
             continue;
         }
 
-        let mut img = io::BufReader::new(fs::File::open(file.path()).unwrap());
+        let mut img = fs::File::open(file.path()).unwrap();
         for part in bootsector::list_partitions(&mut img, &bootsector::Options::default()).unwrap()
         {
             match part.attributes {
@@ -29,8 +29,8 @@ fn all_types() {
                 _ => panic!("unexpected partition table"),
             }
 
-            let mut part_reader = bootsector::open_partition(&mut img, &part).unwrap();
-            let mut superblock = ext4::SuperBlock::new(&mut part_reader).unwrap();
+            let part_reader = positioned_io::Slice::new(&mut img, part.first_byte, Some(part.len));
+            let mut superblock = ext4::SuperBlock::new(part_reader).unwrap();
             let root = superblock.root().unwrap();
             superblock
                 .walk(&root, &image_name, &mut |fs, path, inode, enhanced| {

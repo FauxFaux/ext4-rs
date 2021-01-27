@@ -12,6 +12,8 @@ use anyhow::Context;
 use anyhow::Error;
 use bitflags::bitflags;
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
+use positioned_io::Cursor;
+use positioned_io::ReadAt;
 
 use crc;
 
@@ -79,10 +81,10 @@ bitflags! {
 
 pub fn superblock<R>(mut reader: R, options: &crate::Options) -> Result<crate::SuperBlock<R>, Error>
 where
-    R: io::Read + io::Seek,
+    R: ReadAt,
 {
     let mut entire_superblock = [0u8; 1024];
-    reader.read_exact(&mut entire_superblock)?;
+    reader.read_exact_at(1024, &mut entire_superblock)?;
 
     let mut inner = io::Cursor::new(&mut entire_superblock[..]);
 
@@ -331,7 +333,8 @@ where
         block_size
     };
 
-    reader.seek(io::SeekFrom::Start(u64::from(group_table_pos)))?;
+    let mut grouper = Cursor::new(&mut reader);
+    grouper.seek(io::SeekFrom::Start(u64::from(group_table_pos)))?;
     let blocks_count = (u64::from(s_blocks_count_lo)
         + (u64::from(s_blocks_count_hi.unwrap_or(0)) << 32)
         - u64::from(s_first_data_block)
@@ -340,7 +343,7 @@ where
         / u64::from(s_blocks_per_group);
 
     let groups = crate::block_groups::BlockGroups::new(
-        &mut reader,
+        &mut grouper,
         blocks_count,
         s_desc_size,
         s_inodes_per_group,

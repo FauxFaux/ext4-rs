@@ -3,6 +3,7 @@ use std::io;
 
 use anyhow::ensure;
 use anyhow::Error;
+use positioned_io::ReadAt;
 
 use crate::assumption_failed;
 use crate::read_le16;
@@ -26,7 +27,7 @@ pub struct TreeReader<R> {
 
 impl<R> TreeReader<R>
 where
-    R: io::Read + io::Seek,
+    R: ReadAt,
 {
     pub fn new(
         mut inner: R,
@@ -86,7 +87,7 @@ fn find_part(part: u32, extents: &[Extent]) -> FoundPart {
 
 impl<R> io::Read for TreeReader<R>
 where
-    R: io::Read + io::Seek,
+    R: ReadAt,
 {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         if buf.is_empty() {
@@ -106,10 +107,8 @@ where
                     (u64::from(extent.len) * block_size) - bytes_through_extent;
                 let to_read = std::cmp::min(remaining_bytes_in_extent, buf.len() as u64) as usize;
                 let to_read = std::cmp::min(to_read as u64, self.len - self.pos) as usize;
-                self.inner.seek(io::SeekFrom::Start(
-                    extent.start as u64 * block_size + bytes_through_extent,
-                ))?;
-                let read = self.inner.read(&mut buf[0..to_read])?;
+                let offset = extent.start as u64 * block_size + bytes_through_extent;
+                let read = self.inner.read_at(offset, &mut buf[0..to_read])?;
                 self.pos += u64::try_from(read).expect("infallible u64 conversion");
                 Ok(read)
             }
@@ -127,7 +126,7 @@ where
 
 impl<R> io::Seek for TreeReader<R>
 where
-    R: io::Read + io::Seek,
+    R: ReadAt,
 {
     fn seek(&mut self, pos: io::SeekFrom) -> io::Result<u64> {
         match pos {
@@ -282,9 +281,8 @@ mod tests {
     fn simple_tree() {
         let data = (0..255u8).collect::<Vec<u8>>();
         let size = 4 + 4 * 2;
-        let all_bytes = io::Cursor::new(data);
         let mut reader = TreeReader::create(
-            all_bytes,
+            data,
             4,
             u64::try_from(size).expect("infallible u64 conversion"),
             vec![
