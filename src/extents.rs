@@ -102,7 +102,7 @@ where
                     (u64::from(extent.len) * block_size) - bytes_through_extent;
                 let to_read = std::cmp::min(remaining_bytes_in_extent, buf.len() as u64) as usize;
                 let to_read = std::cmp::min(to_read as u64, self.len - self.pos) as usize;
-                let offset = extent.start as u64 * block_size + bytes_through_extent;
+                let offset = extent.start * block_size + bytes_through_extent;
                 let read = self.inner.read_at(offset, &mut buf[0..to_read])?;
                 self.pos += u64::try_from(read).expect("infallible u64 conversion");
                 Ok(read)
@@ -184,7 +184,7 @@ where
 
     if 0 == depth {
         for en in 0..extent_entries {
-            let raw_extent = &data[12 + en as usize * 12..];
+            let raw_extent = &data[12 + usize::from(en) * 12..];
             let ee_block = read_le32(raw_extent);
             let ee_len = read_le16(&raw_extent[4..]);
             let ee_start_hi = read_le16(&raw_extent[6..]);
@@ -202,7 +202,7 @@ where
     }
 
     for en in 0..extent_entries {
-        let extent_idx = &data[12 + en as usize * 12..];
+        let extent_idx = &data[12 + usize::from(en) * 12..];
         //            let ei_block = as_u32(extent_idx);
         let ei_leaf_lo = read_le32(&extent_idx[4..]);
         let ei_leaf_hi = read_le16(&extent_idx[8..]);
@@ -243,7 +243,7 @@ where
         assumption_failed(format!("initial depth too high: {}", depth))
     );
 
-    let mut extents = Vec::with_capacity(extent_entries as usize + depth as usize * 200);
+    let mut extents = Vec::with_capacity(usize::from(extent_entries) + usize::from(depth) * 200);
 
     add_found_extents(
         load_block,

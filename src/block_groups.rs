@@ -150,7 +150,7 @@ impl BlockGroups {
 
         let inode = inode - 1;
         let group_number = inode / self.inodes_per_group;
-        let group = &self.groups[group_number as usize];
+        let group = &self.groups[usize::try_from(group_number)?];
         let inode_index_in_group = inode % self.inodes_per_group;
         ensure!(
             inode_index_in_group < group.max_inode_number,

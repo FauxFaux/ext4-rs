@@ -417,7 +417,7 @@ where
     } else {
         read_le16(&data[0x80..0x82])
     };
-    let inode_end = INODE_BASE_LEN + i_extra_isize as usize;
+    let inode_end = INODE_BASE_LEN + usize::try_from(i_extra_isize)?;
 
     ensure!(
         inode_end <= data.len(),
@@ -628,7 +628,7 @@ fn read_xattrs(
         let e_value_size = read_le32(&reading[0x08..0x0C]);
         //        let e_hash              = read_le32(&reading[0x0C..0x10]);
 
-        let end_of_name = 0x10 + e_name_len as usize;
+        let end_of_name = 0x10 + usize::try_from(e_name_len)?;
 
         ensure!(
             reading.len() > end_of_name,
@@ -655,8 +655,8 @@ fn read_xattrs(
             std::str::from_utf8(name_suffix).with_context(|| anyhow!("name is invalid utf-8"))?
         );
 
-        let start = e_value_offset as usize;
-        let end = start + e_value_size as usize;
+        let start = usize::try_from(e_value_offset)?;
+        let end = start + usize::try_from(e_value_size)?;
 
         ensure!(
             start <= block_offset_start.len() && end <= block_offset_start.len(),

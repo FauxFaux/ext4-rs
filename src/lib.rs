@@ -274,7 +274,7 @@ where
 
     fn load_inode_bytes(&self, inode: u32) -> Result<Vec<u8>, Error> {
         let offset = self.groups.index_of(inode)?;
-        let mut data = vec![0u8; self.groups.inode_size as usize];
+        let mut data = vec![0u8; usize::try_from(self.groups.inode_size)?];
         self.inner.read_exact_at(offset, &mut data)?;
         Ok(data)
     }
@@ -383,8 +383,8 @@ fn load_disc_bytes<R>(inner: R, block_size: u32, block: u64) -> Result<Vec<u8>, 
 where
     R: ReadAt,
 {
-    let offset = block as u64 * u64::from(block_size);
-    let mut data = vec![0u8; block_size as usize];
+    let offset = block * u64::from(block_size);
+    let mut data = vec![0u8; usize::try_from(block_size)?];
     inner.read_exact_at(offset, &mut data)?;
     Ok(data)
 }
@@ -423,7 +423,7 @@ impl Inode {
                             self.flags
                         ))
                     );
-                    std::str::from_utf8(&self.core[0..self.stat.size as usize])
+                    std::str::from_utf8(&self.core[0..usize::try_from(self.stat.size)?])
                         .with_context(|| anyhow!("short symlink is invalid utf-8"))?
                         .to_string()
                 } else {
@@ -499,7 +499,7 @@ impl Inode {
 
             let name_len = cursor.read_u8()?;
             let file_type = cursor.read_u8()?;
-            let mut name = vec![0u8; name_len as usize];
+            let mut name = vec![0u8; usize::try_from(name_len)?];
             cursor.read_exact(&mut name)?;
             if 0 != child_inode {
                 let name = std::str::from_utf8(&name)
@@ -538,7 +538,7 @@ impl Inode {
                 i64::from(rec_len) - i64::from(name_len) - 4 - 2 - 1 - 1,
             ))?;
 
-            read += rec_len as usize;
+            read += usize::try_from(rec_len)?;
             if read >= total_len {
                 ensure!(
                     read == total_len,
