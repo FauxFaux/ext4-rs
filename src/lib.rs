@@ -242,13 +242,13 @@ where
         SuperBlock::new_with_options(inner, &Options::default())
     }
 
-    pub fn new_with_options(mut inner: R, options: &Options) -> Result<SuperBlock<R>, Error> {
+    pub fn new_with_options(inner: R, options: &Options) -> Result<SuperBlock<R>, Error> {
         Ok(parse::superblock(inner, options)
             .with_context(|| anyhow!("failed to parse superblock"))?)
     }
 
     /// Load a filesystem entry by inode number.
-    pub fn load_inode(&mut self, inode: u32) -> Result<Inode, Error> {
+    pub fn load_inode(&self, inode: u32) -> Result<Inode, Error> {
         let data = self
             .load_inode_bytes(inode)
             .with_context(|| anyhow!("failed to find inode <{}> on disc", inode))?;
@@ -272,19 +272,19 @@ where
         })
     }
 
-    fn load_inode_bytes(&mut self, inode: u32) -> Result<Vec<u8>, Error> {
+    fn load_inode_bytes(&self, inode: u32) -> Result<Vec<u8>, Error> {
         let offset = self.groups.index_of(inode)?;
         let mut data = vec![0u8; self.groups.inode_size as usize];
         self.inner.read_exact_at(offset, &mut data)?;
         Ok(data)
     }
 
-    fn load_disc_bytes(&mut self, block: u64) -> Result<Vec<u8>, Error> {
+    fn load_disc_bytes(&self, block: u64) -> Result<Vec<u8>, Error> {
         load_disc_bytes(&self.inner, self.groups.block_size, block)
     }
 
     /// Load the root node of the filesystem (typically `/`).
-    pub fn root(&mut self) -> Result<Inode, Error> {
+    pub fn root(&self) -> Result<Inode, Error> {
         Ok(self
             .load_inode(2)
             .with_context(|| anyhow!("failed to load root inode"))?)
@@ -293,11 +293,11 @@ where
     /// Visit every entry in the filesystem in an arbitrary order.
     /// The closure should return `true` if it wants walking to continue.
     /// The method returns `true` if the closure always returned true.
-    pub fn walk<F>(&mut self, inode: &Inode, path: &str, visit: &mut F) -> Result<bool, Error>
+    pub fn walk<F>(&self, inode: &Inode, path: &str, visit: &mut F) -> Result<bool, Error>
     where
-        F: FnMut(&mut Self, &str, &Inode, &Enhanced) -> Result<bool, Error>,
+        F: FnMut(&Self, &str, &Inode, &Enhanced) -> Result<bool, Error>,
     {
-        let enhanced = inode.enhance(&mut self.inner)?;
+        let enhanced = inode.enhance(&self.inner)?;
 
         if !visit(self, path, inode, &enhanced).with_context(|| anyhow!("user closure failed"))? {
             return Ok(false);
@@ -329,7 +329,7 @@ where
 
     /// Parse a path, and find the directory entry it represents.
     /// Note that "/foo/../bar" will be treated literally, not resolved to "/bar" then looked up.
-    pub fn resolve_path(&mut self, path: &str) -> Result<DirEntry, Error> {
+    pub fn resolve_path(&self, path: &str) -> Result<DirEntry, Error> {
         let path = path.trim_end_matches('/');
         if path.is_empty() {
             // this is a bit of a lie, but it works..?
@@ -356,7 +356,7 @@ where
         self.dir_entry_named(&curr, last)
     }
 
-    fn dir_entry_named(&mut self, inode: &Inode, name: &str) -> Result<DirEntry, Error> {
+    fn dir_entry_named(&self, inode: &Inode, name: &str) -> Result<DirEntry, Error> {
         if let Enhanced::Directory(entries) = self.enhance(inode)? {
             if let Some(en) = entries.into_iter().find(|entry| entry.name == name) {
                 Ok(en)
@@ -369,17 +369,17 @@ where
     }
 
     /// Read the data from an inode. You might not want to call this on thigns that aren't regular files.
-    pub fn open(&mut self, inode: &Inode) -> Result<TreeReader<&mut R>, Error> {
-        inode.reader(&mut self.inner)
+    pub fn open(&self, inode: &Inode) -> Result<TreeReader<&R>, Error> {
+        inode.reader(&self.inner)
     }
 
     /// Load extra metadata about some types of entries.
-    pub fn enhance(&mut self, inode: &Inode) -> Result<Enhanced, Error> {
-        inode.enhance(&mut self.inner)
+    pub fn enhance(&self, inode: &Inode) -> Result<Enhanced, Error> {
+        inode.enhance(&self.inner)
     }
 }
 
-fn load_disc_bytes<R>(mut inner: R, block_size: u32, block: u64) -> Result<Vec<u8>, Error>
+fn load_disc_bytes<R>(inner: R, block_size: u32, block: u64) -> Result<Vec<u8>, Error>
 where
     R: ReadAt,
 {

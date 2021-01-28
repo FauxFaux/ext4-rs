@@ -1,4 +1,3 @@
-use std;
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::io;
@@ -14,8 +13,6 @@ use bitflags::bitflags;
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
 use positioned_io::Cursor;
 use positioned_io::ReadAt;
-
-use crc;
 
 use crate::assumption_failed;
 use crate::not_found;

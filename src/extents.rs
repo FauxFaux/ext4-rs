@@ -30,33 +30,28 @@ where
     R: ReadAt,
 {
     pub fn new(
-        mut inner: R,
+        inner: R,
         block_size: u32,
         size: u64,
         core: [u8; crate::INODE_CORE_SIZE],
         checksum_prefix: Option<u32>,
     ) -> Result<TreeReader<R>, Error> {
         let extents = load_extent_tree(
-            &mut |block| crate::load_disc_bytes(&mut inner, block_size, block),
+            &mut |block| crate::load_disc_bytes(&inner, block_size, block),
             core,
             checksum_prefix,
         )?;
-        TreeReader::create(inner, block_size, size, extents)
+        Ok(TreeReader::create(inner, block_size, size, extents))
     }
 
-    fn create(
-        inner: R,
-        block_size: u32,
-        size: u64,
-        extents: Vec<Extent>,
-    ) -> Result<TreeReader<R>, Error> {
-        Ok(TreeReader {
+    fn create(inner: R, block_size: u32, size: u64, extents: Vec<Extent>) -> TreeReader<R> {
+        TreeReader {
             pos: 0,
             len: size,
             inner,
             extents,
             block_size,
-        })
+        }
     }
 
     pub fn into_inner(self) -> R {
@@ -271,7 +266,6 @@ fn zero(buf: &mut [u8]) {
 #[cfg(test)]
 mod tests {
     use std::convert::TryFrom;
-    use std::io;
     use std::io::Read;
 
     use crate::extents::Extent;
@@ -297,8 +291,7 @@ mod tests {
                     len: 2,
                 },
             ],
-        )
-        .unwrap();
+        );
 
         let mut res = Vec::new();
         assert_eq!(size, reader.read_to_end(&mut res).unwrap());

@@ -3,7 +3,6 @@ extern crate ext4;
 
 use std::convert::TryFrom;
 use std::fs;
-use std::io;
 use std::io::Read;
 use std::path;
 
