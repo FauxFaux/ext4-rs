@@ -11,7 +11,7 @@ license = "MIT"
 name = "ext4"
 readme = "README.md"
 repository = "https://github.com/FauxFaux/ext4-rs"
-version = "0.8.0"
+version = "0.9.0"
 
 edition = "2018"
 
