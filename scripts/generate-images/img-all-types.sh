@@ -10,7 +10,7 @@ echo 'Hello, world!' > home/faux/hello.txt
 chown 1000:1000 home/faux/hello.txt
 truncate -s 10M sparse-file
 mkfifo fifo-file
-python -c 'import socket as s; sock = s.socket(s.AF_UNIX); sock.bind("sock-file")'
+python3 -c 'import socket as s; sock = s.socket(s.AF_UNIX); sock.bind("sock-file")'
 ln -s nonsense nonsense-symlink-file
 ln sparse-file hardlink-file
 mknod char-device c 1 3
