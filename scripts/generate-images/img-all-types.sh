@@ -23,4 +23,9 @@ setfacl -m u:nobody:r single-xattr
 touch multiple-xattrs
 setfacl -m u:mail:r multiple-xattrs
 setcap cap_block_suspend+ep multiple-xattrs
-# 25 non . entries
+
+touch -d '1902-03-04 05:06:07.890123456Z' old-file
+touch -d '2039-12-31 23:59:59.999999999Z' next-file
+touch -d '2345-06-07 08:09:10.111213141Z' future-file
+
+# 28 non . entries

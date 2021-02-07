@@ -14,13 +14,13 @@ use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
 use positioned_io::Cursor;
 use positioned_io::ReadAt;
 
-use crate::assumption_failed;
 use crate::not_found;
 use crate::parse_error;
 use crate::read_le16;
 use crate::read_le32;
 use crate::unsupported_feature;
 use crate::Time;
+use crate::{assumption_failed, read_lei32};
 
 const EXT4_SUPER_MAGIC: u16 = 0xEF53;
 const INODE_BASE_LEN: usize = 128;
@@ -388,9 +388,9 @@ where
     let i_mode = read_le16(&data[0x00..0x02]); /* File mode */
     let i_uid = read_le16(&data[0x02..0x04]); /* Low 16 bits of Owner Uid */
     let i_size_lo = read_le32(&data[0x04..0x08]); /* Size in bytes */
-    let i_atime = read_le32(&data[0x08..0x0C]); /* Access time */
-    let i_ctime = read_le32(&data[0x0C..0x10]); /* Inode Change time */
-    let i_mtime = read_le32(&data[0x10..0x14]); /* Modification time */
+    let i_atime = read_lei32(&data[0x08..0x0C]); /* Access time */
+    let i_ctime = read_lei32(&data[0x0C..0x10]); /* Inode Change time */
+    let i_mtime = read_lei32(&data[0x10..0x14]); /* Modification time */
     //    let i_dtime           = read_le32(&data[0x14..0x18]); /* Deletion Time */
     let i_gid = read_le16(&data[0x18..0x1A]); /* Low 16 bits of Group Id */
     let i_links_count = read_le16(&data[0x1A..0x1C]); /* Links count */
@@ -451,7 +451,7 @@ where
     let i_crtime = if i_extra_isize < 18 + 2 {
         None
     } else {
-        Some(read_le32(&data[0x90..0x94]))
+        Some(read_lei32(&data[0x90..0x94]))
     }; /* File Creation time */
     let i_crtime_extra = if i_extra_isize < 22 + 2 {
         None
@@ -522,22 +522,10 @@ where
         uid: u32::from(i_uid) | (u32::from(l_i_uid_high) << 16),
         gid: u32::from(i_gid) | (u32::from(l_i_gid_high) << 16),
         size: u64::from(i_size_lo) | (u64::from(i_size_high) << 32),
-        atime: Time {
-            epoch_secs: i_atime,
-            nanos: i_atime_extra,
-        },
-        ctime: Time {
-            epoch_secs: i_ctime,
-            nanos: i_ctime_extra,
-        },
-        mtime: Time {
-            epoch_secs: i_mtime,
-            nanos: i_mtime_extra,
-        },
-        btime: i_crtime.map(|epoch_secs| Time {
-            epoch_secs,
-            nanos: i_crtime_extra,
-        }),
+        atime: Time::from_extra(i_atime, i_atime_extra),
+        ctime: Time::from_extra(i_ctime, i_ctime_extra),
+        mtime: Time::from_extra(i_mtime, i_mtime_extra),
+        btime: i_crtime.map(|i_crtime| Time::from_extra(i_crtime, i_crtime_extra)),
         link_count: i_links_count,
         xattrs,
     };

@@ -212,8 +212,41 @@ pub struct SuperBlock<R> {
 /// A raw filesystem time.
 #[derive(Debug)]
 pub struct Time {
-    pub epoch_secs: u32,
+    pub epoch_secs: i64,
     pub nanos: Option<u32>,
+}
+
+impl Time {
+    // c.f. ext4_decode_extra_time
+    // "We use an encoding that preserves the times for extra epoch"
+    // the lower two bits of the extra field are added to the top of the sec field,
+    // the remainder are the nsec
+    pub fn from_extra(epoch_secs: i32, extra: Option<u32>) -> Time {
+        let mut epoch_secs = i64::from(epoch_secs);
+        match extra {
+            None => Time {
+                epoch_secs,
+                nanos: None,
+            },
+            Some(extra) => {
+                let epoch_bits = 2;
+
+                // 0b1100_00..0000
+                let epoch_mask = (1 << epoch_bits) - 1;
+
+                // 0b00..00_0011
+                let nsec_mask = !0u32 << epoch_bits;
+
+                epoch_secs += i64::from(extra & epoch_mask) << 32;
+
+                let nanos = (extra & nsec_mask) >> epoch_bits;
+                Time {
+                    epoch_secs,
+                    nanos: Some(nanos.clamp(0, 999_999_999)),
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -601,6 +634,12 @@ fn read_le16(from: &[u8]) -> u16 {
 fn read_le32(from: &[u8]) -> u32 {
     use byteorder::ByteOrder;
     LittleEndian::read_u32(from)
+}
+
+#[inline]
+fn read_lei32(from: &[u8]) -> i32 {
+    use byteorder::ByteOrder;
+    LittleEndian::read_i32(from)
 }
 
 fn parse_error(msg: String) -> Error {

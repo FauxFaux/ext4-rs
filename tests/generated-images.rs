@@ -61,8 +61,18 @@ fn all_types() {
                 .read_to_string(&mut s)
                 .unwrap();
             assert_eq!("Hello, world!\n", s);
+
+            assert_eq!(
+                11847456550,
+                superblock
+                    .load_inode(superblock.resolve_path("future-file").unwrap().inode)
+                    .unwrap()
+                    .stat
+                    .mtime
+                    .epoch_secs
+            );
         }
     }
 
-    assert_eq!(25 * 5, files_successfully_processed);
+    assert_eq!(28 * 5, files_successfully_processed);
 }

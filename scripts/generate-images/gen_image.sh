@@ -17,7 +17,7 @@ truncate -s "$size" "$T"
 printf 'n\n\n\n\n\nw\n' | fdisk "$T"
 
 L=$(sudo losetup -P -f --show "$T")
-sudo mkfs.ext4 -O "$opts" "${L}p1"
+sudo mkfs.ext4 -I 256 -O "$opts" "${L}p1"
 sudo mount "${L}p1" "$D"
 
 H=$(pwd)
