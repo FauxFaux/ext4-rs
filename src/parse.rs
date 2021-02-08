@@ -12,7 +12,7 @@ use anyhow::Error;
 use bitflags::bitflags;
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
 use positioned_io::Cursor;
-use positioned_io::ReadAt;
+use positioned_io::{ReadAt, WriteAt};
 
 use crate::not_found;
 use crate::parse_error;
@@ -76,6 +76,20 @@ bitflags! {
     }
 }
 
+pub fn superblock_write_mnt<W>(superblock: &mut crate::SuperBlock<W>) -> Result<usize, Error>
+where
+    W: WriteAt,
+{
+
+    let mut buf = vec![0; 2];
+    LittleEndian::write_u16(&mut buf, 2);
+
+    let nbytes = superblock.inner.write_at(1024 + (4 * 14), &buf).unwrap();
+
+    Ok(nbytes)
+
+}
+
 pub fn superblock<R>(mut reader: R, options: &crate::Options) -> Result<crate::SuperBlock<R>, Error>
 where
     R: ReadAt,
@@ -107,8 +121,8 @@ where
     inner.read_u32::<LittleEndian>()?; /* Mount time */
     //    let s_wtime =
     inner.read_u32::<LittleEndian>()?; /* Write time */
-    //    let s_mnt_count =
-    inner.read_u16::<LittleEndian>()?; /* Mount count */
+    let s_mnt_count = inner.read_u16::<LittleEndian>()?; /* Mount count */
+    println!("AA DEBUG: s_mnt_count: {}", s_mnt_count);
     //    let s_max_mnt_count =
     inner.read_u16::<LittleEndian>()?; /* Maximal mount count */
     let s_magic = inner.read_u16::<LittleEndian>()?; /* Magic signature */
@@ -360,6 +374,7 @@ where
         load_xattrs,
         uuid_checksum,
         groups,
+        s_mnt_count,
     })
 }
 

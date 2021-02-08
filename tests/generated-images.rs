@@ -29,7 +29,10 @@ fn all_types() {
             }
 
             let part_reader = positioned_io::Slice::new(&mut img, part.first_byte, Some(part.len));
-            let superblock = ext4::SuperBlock::new(part_reader).unwrap();
+            let mut superblock = ext4::SuperBlock::new(part_reader).unwrap();
+            println!("superblock: {:?}", superblock);
+            let nbytes = superblock.write_mnt_count();
+            println!("AA DEBUG: nbytes: {:?}", nbytes);
             let root = superblock.root().unwrap();
             superblock
                 .walk(&root, &image_name, &mut |fs, path, inode, enhanced| {

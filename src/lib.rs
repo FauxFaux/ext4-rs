@@ -22,6 +22,7 @@ use std::convert::TryFrom;
 use std::io;
 use std::io::Read;
 use std::io::Seek;
+use std::fmt;
 
 use anyhow::anyhow;
 use anyhow::ensure;
@@ -29,7 +30,7 @@ use anyhow::Context;
 use anyhow::Error;
 use bitflags::bitflags;
 use byteorder::{LittleEndian, ReadBytesExt};
-use positioned_io::ReadAt;
+use positioned_io::{ReadAt, WriteAt};
 
 mod block_groups;
 mod extents;
@@ -200,13 +201,22 @@ pub struct Inode {
 }
 
 /// The critical core of the filesystem.
-#[derive(Debug)]
 pub struct SuperBlock<R> {
     inner: R,
     load_xattrs: bool,
     /// All* checksums are computed after concatenation with the UUID, so we keep that.
     uuid_checksum: Option<u32>,
     groups: block_groups::BlockGroups,
+    s_mnt_count: u16,
+}
+
+impl<R> fmt::Debug for SuperBlock<R>
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SuperBlock")
+         .field("s_mnt_count", &self.s_mnt_count).finish()
+    }
+
 }
 
 /// A raw filesystem time.
@@ -269,6 +279,7 @@ pub struct Options {
 impl<R> SuperBlock<R>
 where
     R: ReadAt,
+    R: WriteAt
 {
     /// Open a filesystem, and load its superblock.
     pub fn new(inner: R) -> Result<SuperBlock<R>, Error> {
@@ -278,6 +289,12 @@ where
     pub fn new_with_options(inner: R, options: &Options) -> Result<SuperBlock<R>, Error> {
         Ok(parse::superblock(inner, options)
             .with_context(|| anyhow!("failed to parse superblock"))?)
+    }
+
+    pub fn write_mnt_count(&mut self) -> Result<usize, Error> {
+        let bytes_count = parse::superblock_write_mnt(self).with_context(|| anyhow!("write_mnt_count() Oh god no"))?;
+        println!("AA DEBUG: write_mnt_count() bytes_count: {:?}", bytes_count);
+        Ok(bytes_count)
     }
 
     /// Load a filesystem entry by inode number.
