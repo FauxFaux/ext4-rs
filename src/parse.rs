@@ -76,18 +76,23 @@ bitflags! {
     }
 }
 
-pub fn superblock_write_mnt<W>(superblock: &mut crate::SuperBlock<W>) -> Result<usize, Error>
+pub fn superblock_write<W>(superblock: &mut crate::SuperBlock<W>) -> Result<usize, Error>
 where
     W: WriteAt,
 {
+    // let mut buf = vec![0; 2];
+    // LittleEndian::write_u16(&mut buf, 2);
 
-    let mut buf = vec![0; 2];
-    LittleEndian::write_u16(&mut buf, 2);
+    // let nbytes = superblock.inner.write_at(1024 + (4 * 14), &buf).unwrap();
 
-    let nbytes = superblock.inner.write_at(1024 + (4 * 14), &buf).unwrap();
+    let mut entire_superblock = [0u8; 1024];
+    let mut inner = io::Cursor::new(&mut entire_superblock[..]);
+
+    // AA TODO: write each superblock field out here similar to the reader function below
+
+    let nbytes = superblock.inner.write_at(1024, &mut entire_superblock)?;
 
     Ok(nbytes)
-
 }
 
 pub fn superblock<R>(mut reader: R, options: &crate::Options) -> Result<crate::SuperBlock<R>, Error>
@@ -100,31 +105,21 @@ where
     let mut inner = io::Cursor::new(&mut entire_superblock[..]);
 
     // <a cut -c 9- | fgrep ' s_' | fgrep -v ERR_ | while read ty nam comment; do printf "let %s =\n  inner.read_%s::<LittleEndian>()?; %s\n" $(echo $nam | tr -d ';') $(echo $ty | sed 's/__le/u/; s/__//') $comment; done
-    //    let s_inodes_count =
-    inner.read_u32::<LittleEndian>()?; /* Inodes count */
+    let s_inodes_count = inner.read_u32::<LittleEndian>()?; /* Inodes count */
     let s_blocks_count_lo = inner.read_u32::<LittleEndian>()?; /* Blocks count */
-    //    let s_r_blocks_count_lo =
-    inner.read_u32::<LittleEndian>()?; /* Reserved blocks count */
-    //    let s_free_blocks_count_lo =
-    inner.read_u32::<LittleEndian>()?; /* Free blocks count */
-    //    let s_free_inodes_count =
-    inner.read_u32::<LittleEndian>()?; /* Free inodes count */
+    let s_r_blocks_count_lo = inner.read_u32::<LittleEndian>()?; /* Reserved blocks count */
+    let s_free_blocks_count_lo = inner.read_u32::<LittleEndian>()?; /* Free blocks count */
+    let s_free_inodes_count = inner.read_u32::<LittleEndian>()?; /* Free inodes count */
     let s_first_data_block = inner.read_u32::<LittleEndian>()?; /* First Data Block */
     let s_log_block_size = inner.read_u32::<LittleEndian>()?; /* Block size */
-    //    let s_log_cluster_size =
-    inner.read_u32::<LittleEndian>()?; /* Allocation cluster size */
+    let s_log_cluster_size = inner.read_u32::<LittleEndian>()?; /* Allocation cluster size */
     let s_blocks_per_group = inner.read_u32::<LittleEndian>()?; /* # Blocks per group */
-    //    let s_clusters_per_group =
-    inner.read_u32::<LittleEndian>()?; /* # Clusters per group */
+    let s_clusters_per_group = inner.read_u32::<LittleEndian>()?; /* # Clusters per group */
     let s_inodes_per_group = inner.read_u32::<LittleEndian>()?; /* # Inodes per group */
-    //    let s_mtime =
-    inner.read_u32::<LittleEndian>()?; /* Mount time */
-    //    let s_wtime =
-    inner.read_u32::<LittleEndian>()?; /* Write time */
+    let s_mtime = inner.read_u32::<LittleEndian>()?; /* Mount time */
+    let s_wtime = inner.read_u32::<LittleEndian>()?; /* Write time */
     let s_mnt_count = inner.read_u16::<LittleEndian>()?; /* Mount count */
-    println!("AA DEBUG: s_mnt_count: {}", s_mnt_count);
-    //    let s_max_mnt_count =
-    inner.read_u16::<LittleEndian>()?; /* Maximal mount count */
+    let s_max_mnt_count = inner.read_u16::<LittleEndian>()?; /* Maximal mount count */
     let s_magic = inner.read_u16::<LittleEndian>()?; /* Magic signature */
 
     ensure!(
@@ -133,14 +128,10 @@ where
     );
 
     let s_state = inner.read_u16::<LittleEndian>()?; /* File system state */
-    //    let s_errors =
-    inner.read_u16::<LittleEndian>()?; /* Behaviour when detecting errors */
-    //    let s_minor_rev_level =
-    inner.read_u16::<LittleEndian>()?; /* minor revision level */
-    //    let s_lastcheck =
-    inner.read_u32::<LittleEndian>()?; /* time of last check */
-    //    let s_checkinterval =
-    inner.read_u32::<LittleEndian>()?; /* max. time between checks */
+    let s_errors = inner.read_u16::<LittleEndian>()?; /* Behaviour when detecting errors */
+    let s_minor_rev_level = inner.read_u16::<LittleEndian>()?; /* minor revision level */
+    let s_lastcheck = inner.read_u32::<LittleEndian>()?; /* time of last check */
+    let s_checkinterval = inner.read_u32::<LittleEndian>()?; /* max. time between checks */
     let s_creator_os = inner.read_u32::<LittleEndian>()?; /* OS */
 
     ensure!(
@@ -152,15 +143,11 @@ where
     );
 
     let s_rev_level = inner.read_u32::<LittleEndian>()?; /* Revision level */
-    //    let s_def_resuid =
-    inner.read_u16::<LittleEndian>()?; /* Default uid for reserved blocks */
-    //    let s_def_resgid =
-    inner.read_u16::<LittleEndian>()?; /* Default gid for reserved blocks */
-    //    let s_first_ino =
-    inner.read_u32::<LittleEndian>()?; /* First non-reserved inode */
+    let s_def_resuid = inner.read_u16::<LittleEndian>()?; /* Default uid for reserved blocks */
+    let s_def_resgid = inner.read_u16::<LittleEndian>()?; /* Default gid for reserved blocks */
+    let s_first_ino = inner.read_u32::<LittleEndian>()?; /* First non-reserved inode */
     let s_inode_size = inner.read_u16::<LittleEndian>()?; /* size of inode structure */
-    //    let s_block_group_nr =
-    inner.read_u16::<LittleEndian>()?; /* block group # of this superblock */
+    let s_block_group_nr = inner.read_u16::<LittleEndian>()?; /* block group # of this superblock */
     let s_feature_compat = inner.read_u32::<LittleEndian>()?; /* compatible feature set */
 
     let compatible_features = CompatibleFeature::from_bits_truncate(s_feature_compat);
@@ -375,6 +362,134 @@ where
         uuid_checksum,
         groups,
         s_mnt_count,
+
+        /*00*/ s_inodes_count,
+        s_blocks_count_lo,
+        s_r_blocks_count_lo,
+        s_free_blocks_count_lo,
+        /*10*/ s_free_inodes_count,
+        s_first_data_block,
+        s_log_block_size,
+        s_log_cluster_size,
+        /*20*/ s_blocks_per_group,
+        s_clusters_per_group,
+        s_inodes_per_group,
+        s_mtime,
+        /*30*/ s_wtime,
+        s_mnt_count,
+        s_max_mnt_count,
+        s_magic,
+        s_state,
+        s_errors,
+        s_minor_rev_level,
+        /*40*/ s_lastcheck,
+        s_checkinterval,
+        s_creator_os,
+        s_rev_level,
+        /*50*/ s_def_resuid,
+        s_def_resgid,
+        /*
+         * These fields are for EXT4_DYNAMIC_REV superblocks only.
+         *
+         * Note,
+         * the incompatible feature set is that if there is a bit set
+         * in the incompatible feature set that the kernel doesn't
+         * know about, it should refuse to mount the filesystem.
+         *
+         * e2fsck's requirements are more strict, if it doesn't know
+         * about a feature in either the compatible or incompatible
+         * feature set, it must abort and not try to meddle with
+         * things it doesn't understand...
+         */
+        s_first_ino,
+        s_inode_size,
+        s_block_group_nr,
+        s_feature_compat,
+        /*60*/ s_feature_incompat,
+        s_feature_ro_compat,
+        /*68*/ s_uuid,
+        /*78*/ s_volume_name,
+        /*88*/ s_last_mounted,
+        /*C8*/ s_algorithm_usage_bitmap,
+        /*
+         * Performance hints.  Directory preallocation should only
+         * happen if the EXT4_FEATURE_COMPAT_DIR_PREALLOC flag is on.
+         */
+        s_prealloc_blocks,
+        s_prealloc_dir_blocks,
+        s_reserved_gdt_blocks,
+        /*
+         * Journaling support valid if EXT4_FEATURE_COMPAT_HAS_JOURNAL set.
+         */
+        /*D0*/
+        s_journal_uuid,
+        /*E0*/ s_journal_inum,
+        s_journal_dev,
+        s_last_orphan,
+        s_hash_seed,
+        s_def_hash_version,
+        s_jnl_backup_type,
+        s_desc_size,
+        /*100*/ s_default_mount_opts,
+        s_first_meta_bg,
+        s_mkfs_time,
+        s_jnl_blocks,
+        /* 64bit support valid if EXT4_FEATURE_COMPAT_64BIT */
+        /*150*/
+        s_blocks_count_hi,
+        s_r_blocks_count_hi,
+        s_free_blocks_count_hi,
+        s_min_extra_isize,
+        s_want_extra_isize,
+        s_flags,
+        s_raid_stride,
+        s_mmp_update_interval,
+        s_mmp_block,
+        s_raid_stripe_width,
+        s_log_groups_per_flex,
+        s_checksum_type,
+        s_encryption_level,
+        s_reserved_pad,
+        s_kbytes_written,
+        s_snapshot_inum,
+        s_snapshot_id,
+        s_snapshot_r_blocks_count,
+        s_snapshot_list,
+        //#define EXT4_S_ERR_START offsetof(struct ext4_super_block, s_error_count)
+        s_error_count,
+        s_first_error_time,
+        s_first_error_ino,
+        s_first_error_block,
+        s_first_error_func,
+        s_first_error_line,
+        s_last_error_time,
+        s_last_error_ino,
+        s_last_error_line,
+        s_last_error_block,
+        s_last_error_func,
+        //#define EXT4_S_ERR_END offsetof(struct ext4_super_block, s_mount_opts)
+        s_mount_opts,
+        s_usr_quota_inum,
+        s_grp_quota_inum,
+        s_overhead_clusters,
+        s_backup_bgs,
+        s_encrypt_algos,
+        s_encrypt_pw_salt,
+        s_lpf_ino,
+        s_prj_quota_inum,
+        s_checksum_seed,
+        s_wtime_hi,
+        s_mtime_hi,
+        s_mkfs_time_hi,
+        s_lastcheck_hi,
+        s_first_error_time_hi,
+        s_last_error_time_hi,
+        s_first_error_errcode,
+        s_last_error_errcode,
+        s_encoding,
+        s_encoding_flags,
+        s_reserved,
+        s_checksum,
     })
 }
 
