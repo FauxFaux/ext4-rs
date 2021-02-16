@@ -19,7 +19,6 @@ file on the filesystem. You can grant yourself temporary access with
 
 use std::collections::HashMap;
 use std::convert::TryFrom;
-use std::fmt;
 use std::io;
 use std::io::Read;
 use std::io::Seek;
@@ -30,6 +29,7 @@ use anyhow::Context;
 use anyhow::Error;
 use bitflags::bitflags;
 use byteorder::{LittleEndian, ReadBytesExt};
+use derivative::Derivative;
 use positioned_io::{ReadAt, WriteAt};
 
 mod block_groups;
@@ -201,7 +201,10 @@ pub struct Inode {
 }
 
 /// The critical core of the filesystem.
+#[derive(Derivative)]
+#[derivative(Debug)]
 pub struct SuperBlock<R> {
+    #[derivative(Debug="ignore")]
     inner: R,
     load_xattrs: bool,
     /// All* checksums are computed after concatenation with the UUID, so we keep that.
@@ -253,8 +256,11 @@ pub struct SuperBlock<R> {
     /*60*/ s_feature_incompat: u32,  /* incompatible feature set */
     s_feature_ro_compat: u32, /* readonly-compatible feature set */
     /*68*/ s_uuid: [u8; 16], /* 128-bit uuid for volume */
-    /*78*/ s_volume_name: [char; 16], /* volume name */
-    /*88*/ s_last_mounted: [char; 64], //__nonstring,	/* directory where last mounted */
+    // /*78*/ s_volume_name: [char; 16], /* volume name */
+    // /*88*/ s_last_mounted: [char; 64], //__nonstring,	/* directory where last mounted */
+    // char is very different in rust
+    /*78*/ s_volume_name: [u8; 16], /* volume name */
+    /*88*/ s_last_mounted: [u8; 64], //__nonstring,	/* directory where last mounted */
     /*C8*/ s_algorithm_usage_bitmap: u32, /* For compression */
     /*
      * Performance hints.  Directory preallocation should only
@@ -336,15 +342,7 @@ pub struct SuperBlock<R> {
     s_encoding: u16,       /* Filename charset encoding */
     s_encoding_flags: u16, /* Filename charset encoding flags */
     s_reserved: [u32; 95], /* Padding to the end of the block */
-    s_checksum: u32,       /* crc32c(superblock) */
-}
-
-impl<R> fmt::Debug for SuperBlock<R> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("SuperBlock")
-            .field("s_mnt_count", &self.s_mnt_count)
-            .finish()
-    }
+    s_checksum: u32, /* crc32c(superblock) */
 }
 
 /// A raw filesystem time.

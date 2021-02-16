@@ -204,69 +204,94 @@ where
     inner.read_exact(&mut s_volume_name)?; /* volume name */
     let mut s_last_mounted = [0u8; 64];
     inner.read_exact(&mut s_last_mounted)?; /* directory where last mounted */
-    //    let s_algorithm_usage_bitmap =
-    inner.read_u32::<LittleEndian>()?; /* For compression */
-    //    let s_prealloc_blocks =
-    inner.read_u8()?; /* Nr of blocks to try to preallocate*/
-    //    let s_prealloc_dir_blocks =
-    inner.read_u8()?; /* Nr to preallocate for dirs */
-    //    let s_reserved_gdt_blocks =
-    inner.read_u16::<LittleEndian>()?; /* Per group desc for online growth */
+    let s_algorithm_usage_bitmap = inner.read_u32::<LittleEndian>()?; /* For compression */
+    let s_prealloc_blocks = inner.read_u8()?; /* Nr of blocks to try to preallocate*/
+    let s_prealloc_dir_blocks = inner.read_u8()?; /* Nr to preallocate for dirs */
+    let s_reserved_gdt_blocks = inner.read_u16::<LittleEndian>()?; /* Per group desc for online growth */
     let mut s_journal_uuid = [0u8; 16];
     inner.read_exact(&mut s_journal_uuid)?; /* uuid of journal superblock */
-    //    let s_journal_inum =
-    inner.read_u32::<LittleEndian>()?; /* inode number of journal file */
-    //    let s_journal_dev =
-    inner.read_u32::<LittleEndian>()?; /* device number of journal file */
-    //    let s_last_orphan =
-    inner.read_u32::<LittleEndian>()?; /* start of list of inodes to delete */
-    let mut s_hash_seed = [0u8; 4 * 4];
-    inner.read_exact(&mut s_hash_seed)?; /* HTREE hash seed */
-    //    let s_def_hash_version =
-    inner.read_u8()?; /* Default hash version to use */
-    //    let s_jnl_backup_type =
-    inner.read_u8()?;
+    let s_journal_inum = inner.read_u32::<LittleEndian>()?; /* inode number of journal file */
+    let s_journal_dev = inner.read_u32::<LittleEndian>()?; /* device number of journal file */
+    let s_last_orphan = inner.read_u32::<LittleEndian>()?; /* start of list of inodes to delete */
+    let mut s_hash_seed = [0u32; 4];
+    inner.read_u32_into::<LittleEndian>(&mut s_hash_seed)?; /* HTREE hash seed */
+    let s_def_hash_version = inner.read_u8()?; /* Default hash version to use */
+    let s_jnl_backup_type = inner.read_u8()?;
     let s_desc_size = inner.read_u16::<LittleEndian>()?; /* size of group descriptor */
-    //    let s_default_mount_opts =
-    inner.read_u32::<LittleEndian>()?;
-    //    let s_first_meta_bg =
-    inner.read_u32::<LittleEndian>()?; /* First metablock block group */
-    //    let s_mkfs_time =
-    inner.read_u32::<LittleEndian>()?; /* When the filesystem was created */
-    let mut s_jnl_blocks = [0; 17 * 4];
-    inner.read_exact(&mut s_jnl_blocks)?; /* Backup of the journal inode */
+    let s_default_mount_opts = inner.read_u32::<LittleEndian>()?;
+    let s_first_meta_bg = inner.read_u32::<LittleEndian>()?; /* First metablock block group */
+    let s_mkfs_time = inner.read_u32::<LittleEndian>()?; /* When the filesystem was created */
+    let mut s_jnl_blocks = [0u32; 17];
+    inner.read_u32_into::<LittleEndian>(&mut s_jnl_blocks)?; /* Backup of the journal inode */
 
-    let s_blocks_count_hi = if !long_structs {
-        None
-    } else {
-        Some(inner.read_u32::<LittleEndian>()?) /* Blocks count */
-    };
-    ////    let s_r_blocks_count_hi =
-    //        if !long_structs { None } else {
-    //            Some(inner.read_u32::<LittleEndian>()?) /* Reserved blocks count */
-    //        };
-    ////    let s_free_blocks_count_hi =
-    //        if !long_structs { None } else {
-    //            Some(inner.read_u32::<LittleEndian>()?) /* Free blocks count */
-    //        };
-    ////    let s_min_extra_isize =
-    //        if !long_structs { None } else {
-    //            Some(inner.read_u16::<LittleEndian>()?) /* All inodes have at least # bytes */
-    //        };
-    ////    let s_want_extra_isize =
-    //        if !long_structs { None } else {
-    //            Some(inner.read_u16::<LittleEndian>()?) /* New inodes should reserve # bytes */
-    //        };
-    ////    let s_flags =
-    //        if !long_structs { None } else {
-    //            Some(inner.read_u32::<LittleEndian>()?) /* Miscellaneous flags */
-    //        };
+    let s_blocks_count_hi = inner.read_u32::<LittleEndian>().unwrap_or(0); /* Blocks count */
+    let s_r_blocks_count_hi = inner.read_u32::<LittleEndian>().unwrap_or(0); /* Reserved blocks count */
+    let s_free_blocks_count_hi = inner.read_u32::<LittleEndian>().unwrap_or(0); /* Free blocks count */
+    let s_min_extra_isize = inner.read_u16::<LittleEndian>().unwrap_or(0); /* All inodes have at least # bytes */
+    let s_want_extra_isize = inner.read_u16::<LittleEndian>().unwrap_or(0); /* New inodes should reserve # bytes */
+    let s_flags = inner.read_u32::<LittleEndian>().unwrap_or(0); /* Miscellaneous flags */
+
+    let s_raid_stride = inner.read_u16::<LittleEndian>()?; /* RAID stride */
+    let s_mmp_update_interval = inner.read_u16::<LittleEndian>()?; /* # seconds to wait in MMP checking */
+    let s_mmp_block = inner.read_u64::<LittleEndian>()?; /* Block for multi-mount protection */
+    let s_raid_stripe_width = inner.read_u32::<LittleEndian>()?; /* blocks on all data disks (N*stride)*/
+    let s_log_groups_per_flex = inner.read_u8()?; /* FLEX_BG group size */
+    let s_checksum_type = inner.read_u8()?; /* metadata checksum algorithm used */
+    let s_encryption_level = inner.read_u8()?; /* versioning level for encryption */
+    let s_reserved_pad = inner.read_u8()?; /* Padding to next 32bits */
+    let s_kbytes_written = inner.read_u64::<LittleEndian>()?; /* nr of lifetime kilobytes written */
+    let s_snapshot_inum = inner.read_u32::<LittleEndian>()?; /* Inode number of active snapshot */
+    let s_snapshot_id = inner.read_u32::<LittleEndian>()?; /* sequential ID of active snapshot */
+    let s_snapshot_r_blocks_count = inner.read_u64::<LittleEndian>()?; /* reserved blocks for active
+                                                                       //                              snapshot's future use */
+    let s_snapshot_list = inner.read_u32::<LittleEndian>()?; /* inode number of the head of the
+                                                             //                       on-disk snapshot list */
+    // //#define EXT4_S_ERR_START offsetof(struct ext4_super_block, s_error_count)
+    let s_error_count = inner.read_u32::<LittleEndian>()?; /* number of fs errors */
+    let s_first_error_time = inner.read_u32::<LittleEndian>()?; /* first time an error happened */
+    let s_first_error_ino = inner.read_u32::<LittleEndian>()?; /* inode involved in first error */
+    let s_first_error_block = inner.read_u64::<LittleEndian>()?; /* block involved of first error */
+    let mut s_first_error_func = [0u8; 32]; // __nonstring,	/* function where the error happened */
+    inner.read_exact(&mut s_first_error_func)?;
+    let s_first_error_line = inner.read_u32::<LittleEndian>()?; /* line number where error happened */
+    let s_last_error_time = inner.read_u32::<LittleEndian>()?; /* most recent time of an error */
+    let s_last_error_ino = inner.read_u32::<LittleEndian>()?; /* inode involved in last error */
+    let s_last_error_line = inner.read_u32::<LittleEndian>()?; /* line number where error happened */
+    let s_last_error_block = inner.read_u64::<LittleEndian>()?; /* block involved of last error */
+    let mut s_last_error_func = [0u8; 32]; //__nonstring,	/* function where the error happened */
+    inner.read_exact(&mut s_last_error_func)?;
+    // //#define EXT4_S_ERR_END offsetof(struct ext4_super_block, s_mount_opts)
+    let mut s_mount_opts = [0u8; 64];
+    inner.read_exact(&mut s_mount_opts)?;
+    let s_usr_quota_inum = inner.read_u32::<LittleEndian>()?; /* inode for tracking user quota */
+    let s_grp_quota_inum = inner.read_u32::<LittleEndian>()?; /* inode for tracking group quota */
+    let s_overhead_clusters = inner.read_u32::<LittleEndian>()?; /* overhead blocks/clusters in fs */
+    let mut s_backup_bgs = [0u32; 2]; /* groups with sparse_super2 SBs */
+    inner.read_u32_into::<LittleEndian>(&mut s_backup_bgs)?;
+    let mut s_encrypt_algos = [0u8; 4]; /* Encryption algorithms in use  */
+    inner.read_exact(&mut s_encrypt_algos)?;
+    let mut s_encrypt_pw_salt = [0u8; 16]; /* Salt used for string2key algorithm */
+    inner.read_exact(&mut s_encrypt_pw_salt)?;
+    let s_lpf_ino = inner.read_u32::<LittleEndian>()?; /* Location of the lost+found inode */
+    let s_prj_quota_inum = inner.read_u32::<LittleEndian>()?; /* inode for tracking project quota */
+    let s_checksum_seed = inner.read_u32::<LittleEndian>()?; /* crc32c(uuid) if csum_seed set */
+    let s_wtime_hi = inner.read_u8()?;
+    let s_mtime_hi = inner.read_u8()?;
+    let s_mkfs_time_hi = inner.read_u8()?;
+    let s_lastcheck_hi = inner.read_u8()?;
+    let s_first_error_time_hi = inner.read_u8()?;
+    let s_last_error_time_hi = inner.read_u8()?;
+    let s_first_error_errcode = inner.read_u8()?;
+    let s_last_error_errcode = inner.read_u8()?;
+    let s_encoding = inner.read_u16::<LittleEndian>()?; /* Filename charset encoding */
+    let s_encoding_flags = inner.read_u16::<LittleEndian>()?; /* Filename charset encoding flags */
+    let mut s_reserved = [0u32; 95]; /* Padding to the end of the block */
+    inner.read_u32_into::<LittleEndian>(&mut s_reserved)?;
 
     // TODO: check s_checksum_type == 1 (crc32c)
 
+    let s_checksum = inner.read_u32::<LittleEndian>()?;
     if has_checksums {
-        inner.seek(io::SeekFrom::End(-4))?;
-        let s_checksum = inner.read_u32::<LittleEndian>()?;
         let expected = ext4_style_crc32c_le(!0, &inner.into_inner()[..(1024 - 4)]);
         ensure!(
             s_checksum == expected,
@@ -334,7 +359,7 @@ where
     let mut grouper = Cursor::new(&mut reader);
     grouper.seek(io::SeekFrom::Start(u64::from(group_table_pos)))?;
     let blocks_count = (u64::from(s_blocks_count_lo)
-        + (u64::from(s_blocks_count_hi.unwrap_or(0)) << 32)
+        + (u64::from(s_blocks_count_hi) << 32)
         - u64::from(s_first_data_block)
         + u64::from(s_blocks_per_group)
         - 1)
@@ -361,7 +386,6 @@ where
         load_xattrs,
         uuid_checksum,
         groups,
-        s_mnt_count,
 
         /*00*/ s_inodes_count,
         s_blocks_count_lo,
