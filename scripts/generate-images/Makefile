@@ -18,7 +18,7 @@ all-types-big-32.img: img-all-types.sh $(GEN)
 	$(GEN) $< $@ 80G ^64bit
 
 images.tgz: all-types.img all-types-32.img all-types-tiny.img all-types-big.img all-types-big-32.img
-	tar -zcf $@ --sparse $^
+	tar -H pax -zcf $@ --sparse $^
 
 clean:
 	rm -f images.tgz *.img

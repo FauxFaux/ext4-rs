@@ -3,22 +3,42 @@ extern crate ext4;
 
 use std::convert::TryFrom;
 use std::fs;
-use std::io::Read;
+use std::io;
+use std::io::{Read, Seek, SeekFrom};
 use std::path;
 
+use anyhow::Result;
+use tar::Archive;
+use tempfile::NamedTempFile;
+use positioned_io::ReadAt;
+
+fn open_assets() -> Result<Archive<Box<dyn Read>>> {
+    let tar = flate2::read::GzDecoder::new(io::Cursor::new(&include_bytes!("../scripts/generate-images/images.tgz")[..]));
+    Ok(tar::Archive::new(Box::new(tar) as Box<dyn Read>))
+}
+
 #[test]
-fn all_types() {
+fn all_types() -> Result<()> {
     let mut files_successfully_processed = 0u64;
-    for file in path::Path::new("tests/generated").read_dir().unwrap() {
-        let file = file.unwrap();
-        let image_name = file.file_name().into_string().unwrap();
-        if !image_name.starts_with("all-types") {
+
+    for file in open_assets()?.entries()? {
+        let mut entry = file?;
+        let image_name = entry.header().path()?.to_string_lossy().to_string();
+        if !image_name.contains("all-types") {
             continue;
         }
 
-        let mut img = fs::File::open(file.path()).unwrap();
-        for part in bootsector::list_partitions(&mut img, &bootsector::Options::default()).unwrap()
-        {
+        let mut img = NamedTempFile::new()?;
+        entry.unpack(&mut img)?;
+        // io::copy(&mut entry, &mut img)?;
+        img.seek(SeekFrom::Start(0))?;
+        println!("{:?}", img.path());
+        std::thread::sleep(std::time::Duration::new(100, 0));
+
+        let partitions = bootsector::list_partitions(&mut img, &bootsector::Options::default()).unwrap();
+        let mut img = ReadAtTempFile { inner: img };
+
+        for part in partitions {
             match part.attributes {
                 bootsector::Attributes::MBR { type_code, .. } => {
                     if 0x83 != type_code {
@@ -75,4 +95,16 @@ fn all_types() {
     }
 
     assert_eq!(28 * 5, files_successfully_processed);
+
+    Ok(())
+}
+
+struct ReadAtTempFile {
+    inner: NamedTempFile,
+}
+
+impl ReadAt for ReadAtTempFile {
+    fn read_at(&self, pos: u64, buf: &mut [u8]) -> io::Result<usize> {
+        self.inner.as_file().read_at(pos, buf)
+    }
 }

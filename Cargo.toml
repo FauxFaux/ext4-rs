@@ -1,6 +1,5 @@
 [package]
 authors = ["Chris West (Faux) <git@goeswhere.com>"]
-build = "build.rs"
 categories = [
     "filesystem",
     "os",
@@ -28,3 +27,6 @@ thiserror = "1"
 
 [dev-dependencies]
 bootsector = "0.1"
+flate2 = "1"
+tar = "0.4"
+tempfile = "3"
