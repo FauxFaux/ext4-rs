@@ -204,11 +204,12 @@ pub struct Inode {
 #[derive(Derivative)]
 #[derivative(Debug)]
 pub struct SuperBlock<R> {
-    #[derivative(Debug="ignore")]
+    #[derivative(Debug = "ignore")]
     inner: R,
     load_xattrs: bool,
     /// All* checksums are computed after concatenation with the UUID, so we keep that.
     uuid_checksum: Option<u32>,
+    #[derivative(Debug = "ignore")]
     groups: block_groups::BlockGroups,
 
     /*00*/ s_inodes_count: u32,         /* Inodes count */
@@ -259,7 +260,8 @@ pub struct SuperBlock<R> {
     // /*78*/ s_volume_name: [char; 16], /* volume name */
     // /*88*/ s_last_mounted: [char; 64], //__nonstring,	/* directory where last mounted */
     // char is very different in rust
-    /*78*/ s_volume_name: [u8; 16], /* volume name */
+    /*78*/
+    s_volume_name: [u8; 16], /* volume name */
     /*88*/ s_last_mounted: [u8; 64], //__nonstring,	/* directory where last mounted */
     /*C8*/ s_algorithm_usage_bitmap: u32, /* For compression */
     /*
@@ -342,7 +344,7 @@ pub struct SuperBlock<R> {
     s_encoding: u16,       /* Filename charset encoding */
     s_encoding_flags: u16, /* Filename charset encoding flags */
     s_reserved: [u32; 95], /* Padding to the end of the block */
-    s_checksum: u32, /* crc32c(superblock) */
+    s_checksum: u32,       /* crc32c(superblock) */
 }
 
 /// A raw filesystem time.
@@ -405,7 +407,6 @@ pub struct Options {
 impl<R> SuperBlock<R>
 where
     R: ReadAt,
-    R: WriteAt,
 {
     /// Open a filesystem, and load its superblock.
     pub fn new(inner: R) -> Result<SuperBlock<R>, Error> {
@@ -415,16 +416,6 @@ where
     pub fn new_with_options(inner: R, options: &Options) -> Result<SuperBlock<R>, Error> {
         Ok(parse::superblock(inner, options)
             .with_context(|| anyhow!("failed to parse superblock"))?)
-    }
-
-    pub fn write_superblock(&mut self) -> Result<usize, Error> {
-        let bytes_count = parse::superblock_write(self)
-            .with_context(|| anyhow!("write_superblock() Oh god no"))?;
-        println!(
-            "AA DEBUG: write_superblock() bytes_count: {:?}",
-            bytes_count
-        );
-        Ok(bytes_count)
     }
 
     /// Load a filesystem entry by inode number.
@@ -556,6 +547,21 @@ where
     /// Load extra metadata about some types of entries.
     pub fn enhance(&self, inode: &Inode) -> Result<Enhanced, Error> {
         inode.enhance(&self.inner)
+    }
+}
+
+impl<R> SuperBlock<R>
+where
+    R: WriteAt,
+{
+    pub fn write_superblock(&mut self) -> Result<usize, Error> {
+        let bytes_count = parse::superblock_write(self)
+            .with_context(|| anyhow!("write_superblock() Oh god no"))?;
+        println!(
+            "AA DEBUG: write_superblock() bytes_count: {:?}",
+            bytes_count
+        );
+        Ok(bytes_count)
     }
 }
 

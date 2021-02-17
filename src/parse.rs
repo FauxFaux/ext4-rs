@@ -358,8 +358,7 @@ where
 
     let mut grouper = Cursor::new(&mut reader);
     grouper.seek(io::SeekFrom::Start(u64::from(group_table_pos)))?;
-    let blocks_count = (u64::from(s_blocks_count_lo)
-        + (u64::from(s_blocks_count_hi) << 32)
+    let blocks_count = (u64::from(s_blocks_count_lo) + (u64::from(s_blocks_count_hi) << 32)
         - u64::from(s_first_data_block)
         + u64::from(s_blocks_per_group)
         - 1)
