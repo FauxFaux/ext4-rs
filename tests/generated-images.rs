@@ -2,23 +2,29 @@ extern crate bootsector;
 extern crate ext4;
 
 use std::convert::TryFrom;
+use std::ffi::OsStr;
 use std::fs;
-use std::io::Read;
-use std::path;
+use std::io;
+use std::io::{Read, Seek, SeekFrom};
+use std::path::PathBuf;
+use std::process::Stdio;
+
+use anyhow::Result;
+use positioned_io::ReadAt;
+use tempfile::NamedTempFile;
+use tempfile::TempDir;
 
 #[test]
-fn all_types() {
+fn all_types() -> Result<()> {
     let mut files_successfully_processed = 0u64;
-    for file in path::Path::new("tests/generated").read_dir().unwrap() {
-        let file = file.unwrap();
-        let image_name = file.file_name().into_string().unwrap();
-        if !image_name.starts_with("all-types") {
-            continue;
-        }
 
-        let mut img = fs::File::open(file.path()).unwrap();
-        for part in bootsector::list_partitions(&mut img, &bootsector::Options::default()).unwrap()
-        {
+    for image_name in open_assets()?.entries()? {
+        let mut img = fs::File::open(image_name)?;
+
+        let partitions =
+            bootsector::list_partitions(&mut img, &bootsector::Options::default()).unwrap();
+
+        for part in partitions {
             match part.attributes {
                 bootsector::Attributes::MBR { type_code, .. } => {
                     if 0x83 != type_code {
@@ -32,7 +38,7 @@ fn all_types() {
             let superblock = ext4::SuperBlock::new(part_reader).unwrap();
             let root = superblock.root().unwrap();
             superblock
-                .walk(&root, &image_name, &mut |fs, path, inode, enhanced| {
+                .walk(&root, "", &mut |fs, path, inode, enhanced| {
                     println!(
                         "<{}> {}: {:?} {:?}",
                         inode.number, path, enhanced, inode.stat
@@ -75,4 +81,49 @@ fn all_types() {
     }
 
     assert_eq!(28 * 5, files_successfully_processed);
+
+    Ok(())
+}
+
+struct ReadAtTempFile {
+    inner: NamedTempFile,
+}
+
+impl ReadAt for ReadAtTempFile {
+    fn read_at(&self, pos: u64, buf: &mut [u8]) -> io::Result<usize> {
+        self.inner.as_file().read_at(pos, buf)
+    }
+}
+
+struct Assets {
+    tempdir: TempDir,
+}
+
+fn open_assets() -> Result<Assets> {
+    let tempdir = TempDir::new()?;
+    let mut tar = std::process::Command::new("tar")
+        .args(&[
+            OsStr::new("-C"),
+            tempdir.path().as_os_str(),
+            OsStr::new("-xz"),
+        ])
+        .stdin(Stdio::piped())
+        .spawn()?;
+
+    io::copy(
+        &mut io::Cursor::new(&include_bytes!("../scripts/generate-images/images.tgz")[..]),
+        &mut tar.stdin.as_mut().expect("configured above"),
+    )?;
+
+    assert!(tar.wait()?.success());
+
+    Ok(Assets { tempdir })
+}
+
+impl Assets {
+    fn entries(&self) -> Result<Vec<PathBuf>> {
+        fs::read_dir(self.tempdir.path())?
+            .map(|e| -> Result<PathBuf> { Ok(e?.path()) })
+            .collect()
+    }
 }
