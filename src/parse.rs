@@ -12,7 +12,7 @@ use anyhow::Error;
 use bitflags::bitflags;
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
 use positioned_io::Cursor;
-use positioned_io::{ReadAt, WriteAt};
+use positioned_io::ReadAt;
 
 use crate::not_found;
 use crate::parse_error;
@@ -74,25 +74,6 @@ bitflags! {
        const INLINE_DATA    = 0x8000; /* data in inode */
        const ENCRYPT        = 0x10000;
     }
-}
-
-pub fn superblock_write<W>(superblock: &mut crate::SuperBlock<W>) -> Result<usize, Error>
-where
-    W: WriteAt,
-{
-    // let mut buf = vec![0; 2];
-    // LittleEndian::write_u16(&mut buf, 2);
-
-    // let nbytes = superblock.inner.write_at(1024 + (4 * 14), &buf).unwrap();
-
-    let mut entire_superblock = [0u8; 1024];
-    let mut inner = io::Cursor::new(&mut entire_superblock[..]);
-
-    // AA TODO: write each superblock field out here similar to the reader function below
-
-    let nbytes = superblock.inner.write_at(1024, &mut entire_superblock)?;
-
-    Ok(nbytes)
 }
 
 pub fn superblock<R>(mut reader: R, options: &crate::Options) -> Result<crate::SuperBlock<R>, Error>

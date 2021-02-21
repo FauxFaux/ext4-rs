@@ -22,13 +22,14 @@ use std::convert::TryFrom;
 use std::io;
 use std::io::Read;
 use std::io::Seek;
+use std::io::Write;
 
 use anyhow::anyhow;
 use anyhow::ensure;
 use anyhow::Context;
 use anyhow::Error;
 use bitflags::bitflags;
-use byteorder::{LittleEndian, ReadBytesExt};
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use derivative::Derivative;
 use positioned_io::{ReadAt, WriteAt};
 
@@ -555,13 +556,148 @@ where
     R: WriteAt,
 {
     pub fn write_superblock(&mut self) -> Result<usize, Error> {
-        let bytes_count = parse::superblock_write(self)
-            .with_context(|| anyhow!("write_superblock() Oh god no"))?;
-        println!(
-            "AA DEBUG: write_superblock() bytes_count: {:?}",
-            bytes_count
-        );
-        Ok(bytes_count)
+        let mut entire_superblock = [0u8; 1024];
+        let mut inner = io::Cursor::new(&mut entire_superblock[..]);
+
+        inner.write_u32::<LittleEndian>(self.s_inodes_count)?; /* Inodes count */
+        inner.write_u32::<LittleEndian>(self.s_blocks_count_lo)?; /* Blocks count */
+        inner.write_u32::<LittleEndian>(self.s_r_blocks_count_lo)?; /* Reserved blocks count */
+        inner.write_u32::<LittleEndian>(self.s_free_blocks_count_lo)?; /* Free blocks count */
+        inner.write_u32::<LittleEndian>(self.s_free_inodes_count)?; /* Free inodes count */
+        inner.write_u32::<LittleEndian>(self.s_first_data_block)?; /* First Data Block */
+        inner.write_u32::<LittleEndian>(self.s_log_block_size)?; /* Block size */
+        inner.write_u32::<LittleEndian>(self.s_log_cluster_size)?; /* Allocation cluster size */
+        inner.write_u32::<LittleEndian>(self.s_blocks_per_group)?; /* # Blocks per group */
+        inner.write_u32::<LittleEndian>(self.s_clusters_per_group)?; /* # Clusters per group */
+        inner.write_u32::<LittleEndian>(self.s_inodes_per_group)?; /* # Inodes per group */
+        inner.write_u32::<LittleEndian>(self.s_mtime)?; /* Mount time */
+        inner.write_u32::<LittleEndian>(self.s_wtime)?; /* Write time */
+
+        inner.write_u16::<LittleEndian>(self.s_mnt_count)?; /* Mount count */
+        inner.write_u16::<LittleEndian>(self.s_max_mnt_count)?; /* Maximal mount count */
+        inner.write_u16::<LittleEndian>(self.s_magic)?; /* Magic signature */
+
+        inner.write_u16::<LittleEndian>(self.s_state)?; /* File system state */
+        inner.write_u16::<LittleEndian>(self.s_errors)?; /* Behaviour when detecting errors */
+        inner.write_u16::<LittleEndian>(self.s_minor_rev_level)?; /* minor revision level */
+        inner.write_u32::<LittleEndian>(self.s_lastcheck)?; /* time of last check */
+        inner.write_u32::<LittleEndian>(self.s_checkinterval)?; /* max. time between checks */
+        inner.write_u32::<LittleEndian>(self.s_creator_os)?; /* OS */
+
+        inner.write_u32::<LittleEndian>(self.s_rev_level)?; /* Revision level */
+        inner.write_u16::<LittleEndian>(self.s_def_resuid)?; /* Default uid for reserved blocks */
+        inner.write_u16::<LittleEndian>(self.s_def_resgid)?; /* Default gid for reserved blocks */
+        inner.write_u32::<LittleEndian>(self.s_first_ino)?; /* First non-reserved inode */
+        inner.write_u16::<LittleEndian>(self.s_inode_size)?; /* size of inode structure */
+        inner.write_u16::<LittleEndian>(self.s_block_group_nr)?; /* block group # of this superblock */
+        inner.write_u32::<LittleEndian>(self.s_feature_compat)?; /* compatible feature set */
+
+        inner.write_u32::<LittleEndian>(self.s_feature_incompat)?; /* incompatible feature set */
+        inner.write_u32::<LittleEndian>(self.s_feature_ro_compat)?; /* readonly-compatible feature set */
+
+        inner.write_all(&self.s_uuid)?; /* 128-bit uuid for volume */
+        inner.write_all(&self.s_volume_name)?; /* volume name */
+        inner.write_all(&self.s_last_mounted)?; /* directory where last mounted */
+
+        inner.write_u32::<LittleEndian>(self.s_algorithm_usage_bitmap)?; /* For compression */
+        inner.write_u8(self.s_prealloc_blocks)?; /* Nr of blocks to try to preallocate*/
+        inner.write_u8(self.s_prealloc_dir_blocks)?; /* Nr to preallocate for dirs */
+        inner.write_u16::<LittleEndian>(self.s_reserved_gdt_blocks)?; /* Per group desc for online growth */
+
+        inner.write_all(&self.s_journal_uuid)?; /* uuid of journal superblock */
+        inner.write_u32::<LittleEndian>(self.s_journal_inum)?; /* inode number of journal file */
+        inner.write_u32::<LittleEndian>(self.s_journal_dev)?; /* device number of journal file */
+        inner.write_u32::<LittleEndian>(self.s_last_orphan)?; /* start of list of inodes to delete */
+        // inner.write_u32_into::<LittleEndian>(self.s_hash_seed)?; /* HTREE hash seed */
+        for _u32 in &self.s_hash_seed {
+            inner.write_u32::<LittleEndian>(*_u32)?; /* HTREE hash seed */
+        }
+
+        inner.write_u8(self.s_def_hash_version)?; /* Default hash version to use */
+        inner.write_u8(self.s_jnl_backup_type)?;
+        inner.write_u16::<LittleEndian>(self.s_desc_size)?; /* size of group descriptor */
+        inner.write_u32::<LittleEndian>(self.s_default_mount_opts)?;
+        inner.write_u32::<LittleEndian>(self.s_first_meta_bg)?; /* First metablock block group */
+        inner.write_u32::<LittleEndian>(self.s_mkfs_time)?; /* When the filesystem was created */
+        // inner.write_u32_into::<LittleEndian>(self.s_jnl_blocks)?; /* Backup of the journal inode */
+        for _u32 in &self.s_jnl_blocks {
+            inner.write_u32::<LittleEndian>(*_u32)?; /* Backup of the journal inode */
+        }
+
+        // /* 64bit support valid if EXT4_FEATURE_COMPAT_64BIT */
+        // /*150*/
+        inner.write_u32::<LittleEndian>(self.s_blocks_count_hi)?;
+        inner.write_u32::<LittleEndian>(self.s_r_blocks_count_hi)?;
+        inner.write_u32::<LittleEndian>(self.s_free_blocks_count_hi)?;
+        inner.write_u16::<LittleEndian>(self.s_min_extra_isize)?;
+        inner.write_u16::<LittleEndian>(self.s_want_extra_isize)?;
+        inner.write_u32::<LittleEndian>(self.s_flags)?;
+        inner.write_u16::<LittleEndian>(self.s_raid_stride)?;
+        inner.write_u16::<LittleEndian>(self.s_mmp_update_interval)?;
+        inner.write_u64::<LittleEndian>(self.s_mmp_block)?;
+        inner.write_u32::<LittleEndian>(self.s_raid_stripe_width)?;
+        inner.write_u8(self.s_log_groups_per_flex)?;
+        inner.write_u8(self.s_checksum_type)?;
+        inner.write_u8(self.s_encryption_level)?;
+        inner.write_u8(self.s_reserved_pad)?;
+        inner.write_u64::<LittleEndian>(self.s_kbytes_written)?;
+        inner.write_u32::<LittleEndian>(self.s_snapshot_inum)?;
+        inner.write_u32::<LittleEndian>(self.s_snapshot_id)?;
+        inner.write_u64::<LittleEndian>(self.s_snapshot_r_blocks_count)?;
+        inner.write_u32::<LittleEndian>(self.s_snapshot_list)?;
+        //#define EXT4_S_ERR_START offsetof(struct ext4_super_block, s_error_count)
+        inner.write_u32::<LittleEndian>(self.s_error_count)?;
+        inner.write_u32::<LittleEndian>(self.s_first_error_time)?;
+        inner.write_u32::<LittleEndian>(self.s_first_error_ino)?;
+        inner.write_u64::<LittleEndian>(self.s_first_error_block)?;
+        for _u8 in &self.s_first_error_func {
+            inner.write_u8(*_u8)?;
+        }
+        inner.write_u32::<LittleEndian>(self.s_first_error_line)?;
+        inner.write_u32::<LittleEndian>(self.s_last_error_time)?;
+        inner.write_u32::<LittleEndian>(self.s_last_error_ino)?;
+        inner.write_u32::<LittleEndian>(self.s_last_error_line)?;
+        inner.write_u64::<LittleEndian>(self.s_last_error_block)?;
+        for _u8 in &self.s_last_error_func {
+            inner.write_u8(*_u8)?;
+        }
+        // //#define EXT4_S_ERR_END offsetof(struct ext4_super_block, s_mount_opts)
+        for _u8 in &self.s_mount_opts {
+            inner.write_u8(*_u8)?;
+        }
+        inner.write_u32::<LittleEndian>(self.s_usr_quota_inum)?;
+        inner.write_u32::<LittleEndian>(self.s_grp_quota_inum)?;
+        inner.write_u32::<LittleEndian>(self.s_overhead_clusters)?;
+        for _u8 in &self.s_backup_bgs {
+            inner.write_u32::<LittleEndian>(*_u8)?;
+        }
+        for _u8 in &self.s_encrypt_algos {
+            inner.write_u8(*_u8)?;
+        }
+        for _u8 in &self.s_encrypt_pw_salt {
+            inner.write_u8(*_u8)?;
+        }
+        inner.write_u32::<LittleEndian>(self.s_lpf_ino)?;
+        inner.write_u32::<LittleEndian>(self.s_prj_quota_inum)?;
+        inner.write_u32::<LittleEndian>(self.s_checksum_seed)?;
+        inner.write_u8(self.s_wtime_hi)?;
+        inner.write_u8(self.s_mtime_hi)?;
+        inner.write_u8(self.s_mkfs_time_hi)?;
+        inner.write_u8(self.s_lastcheck_hi)?;
+        inner.write_u8(self.s_first_error_time_hi)?;
+        inner.write_u8(self.s_last_error_time_hi)?;
+        inner.write_u8(self.s_first_error_errcode)?;
+        inner.write_u8(self.s_last_error_errcode)?;
+        inner.write_u16::<LittleEndian>(self.s_encoding)?;
+        inner.write_u16::<LittleEndian>(self.s_encoding_flags)?;
+        for _u8 in &self.s_reserved {
+            inner.write_u32::<LittleEndian>(*_u8)?;
+        }
+        inner.write_u32::<LittleEndian>(self.s_checksum)?;
+
+        let nbytes = self.inner.write_at(1024, &mut entire_superblock)?;
+
+        Ok(nbytes)
     }
 }
 

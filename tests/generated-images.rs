@@ -31,8 +31,14 @@ fn all_types() {
             let part_reader = positioned_io::Slice::new(&mut img, part.first_byte, Some(part.len));
             let mut superblock = ext4::SuperBlock::new(part_reader).unwrap();
             println!("superblock: {:?}", superblock);
-            // let nbytes = superblock.write_superblock();  // TODO Turn this back on and test test test
-            // println!("AA DEBUG: nbytes: {:?}", nbytes);
+            let nbytes = superblock.write_superblock();
+            match nbytes {
+                Ok(n) => println!("write_superblock(): nbytes: {:?}", n),
+                Err(e) => {
+                    println!("write_superblock(): error: {:?}", e);
+                    panic!(e);
+                }
+            }
             let root = superblock.root().unwrap();
             superblock
                 .walk(&root, &image_name, &mut |fs, path, inode, enhanced| {
