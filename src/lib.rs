@@ -696,6 +696,10 @@ where
         inner.write_u32::<LittleEndian>(self.s_checksum)?;
 
         // TODO Also write the superblock to the rest of the duplicate locations it belongs on disk!
+        // See notes here: https://ext4.wiki.kernel.org/index.php/Ext4_Disk_Layout#The_Super_Block
+        // In particular: If the sparse_super feature flag is set, redundant copies of the superblock
+        // and group descriptors are kept only in the groups whose group number is either 0 or a power
+        // of 3, 5, or 7. If the flag is not set, redundant copies are kept in all groups.
         let nbytes = self.inner.write_at(1024, &mut entire_superblock)?;
 
         Ok(nbytes)
