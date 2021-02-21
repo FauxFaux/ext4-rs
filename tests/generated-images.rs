@@ -16,7 +16,12 @@ fn all_types() {
             continue;
         }
 
-        let mut img = fs::File::open(file.path()).unwrap();
+        // let mut img = fs::File::open(file.path()).unwrap();
+        let mut img = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(file.path()).unwrap();
         for part in bootsector::list_partitions(&mut img, &bootsector::Options::default()).unwrap()
         {
             match part.attributes {
