@@ -24,7 +24,7 @@ fn all_types() -> Result<()> {
             .read(true)
             .write(true)
             .create(true)
-            .open(file.path()).unwrap();
+            .open(image_name).unwrap();
 
         let partitions =
             bootsector::list_partitions(&mut img, &bootsector::Options::default()).unwrap();
