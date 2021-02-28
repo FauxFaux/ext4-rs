@@ -48,7 +48,7 @@ pub struct RawInode {
     /* crc32c(uuid+inum+inode) LE */
     pub l_i_checksum_lo: u16,
     pub l_i_reserved: u16,
-    pub i_extra_isize: u16,
+    pub i_extra_isize: Option<u16>,
     /* crc32c(uuid+inum+inode) BE */
     pub i_checksum_hi: Option<u16>,
     /* extra Change time      (nsec << 2 | epoch) */
@@ -69,7 +69,7 @@ pub struct RawInode {
 
 impl RawInode {
     pub fn from_slice(data: &[u8]) -> Self {
-        let i_extra_isize = read_le16(&data[0x80..]);
+        assert!(data.len() >= 0x80);
         Self {
             i_mode: read_le16(&data[0x00..]),
             i_uid: read_le16(&data[0x02..]),
@@ -94,47 +94,59 @@ impl RawInode {
             l_i_gid_high: read_le16(&data[0x7a..]),
             l_i_checksum_lo: read_le16(&data[0x7c..]),
             l_i_reserved: read_le16(&data[0x7e..]),
-            i_extra_isize,
-            i_checksum_hi: if i_extra_isize >= 4 {
+            i_extra_isize: if data.len() >= 0x82 {
+                Some(read_le16(&data[0x80..]))
+            } else {
+                None
+            },
+            i_checksum_hi: if data.len() >= 0x84 {
                 Some(read_le16(&data[0x82..]))
             } else {
                 None
             },
-            i_ctime_extra: if i_extra_isize >= 8 {
+            i_ctime_extra: if data.len() >= 0x88 {
                 Some(read_le32(&data[0x84..]))
             } else {
                 None
             },
-            i_mtime_extra: if i_extra_isize >= 12 {
+            i_mtime_extra: if data.len() >= 0x8c {
                 Some(read_le32(&data[0x88..]))
             } else {
                 None
             },
-            i_atime_extra: if i_extra_isize >= 16 {
+            i_atime_extra: if data.len() >= 0x90 {
                 Some(read_le32(&data[0x8c..]))
             } else {
                 None
             },
-            i_crtime: if i_extra_isize >= 20 {
+            i_crtime: if data.len() >= 0x94 {
                 Some(read_lei32(&data[0x90..]))
             } else {
                 None
             },
-            i_crtime_extra: if i_extra_isize >= 24 {
+            i_crtime_extra: if data.len() >= 0x98 {
                 Some(read_le32(&data[0x94..]))
             } else {
                 None
             },
-            i_version_hi: if i_extra_isize >= 28 {
+            i_version_hi: if data.len() >= 0x9c {
                 Some(read_le32(&data[0x98..]))
             } else {
                 None
             },
-            i_projid: if i_extra_isize >= 32 {
+            i_projid: if data.len() >= 0xa0 {
                 Some(read_le32(&data[0x9c..]))
             } else {
                 None
             },
+        }
+    }
+
+    pub fn peek_i_extra_isize(data: &[u8]) -> Option<u16> {
+        if data.len() >= 0x82 {
+            Some(read_le16(&data[0x80..]))
+        } else {
+            None
         }
     }
 }
@@ -188,7 +200,8 @@ pub struct RawBlockGroup {
 }
 
 impl RawBlockGroup {
-    pub fn from_slice(data: &[u8], s_desc_size: u16) -> Self {
+    pub fn from_slice(data: &[u8]) -> Self {
+        assert!(data.len() >= 0x20);
         Self {
             bg_block_bitmap_lo: read_le32(&data[0x00..]),
             bg_inode_bitmap_lo: read_le32(&data[0x04..]),
@@ -202,57 +215,57 @@ impl RawBlockGroup {
             bg_inode_bitmap_csum_lo: read_le16(&data[0x1a..]),
             bg_itable_unused_lo: read_le16(&data[0x1c..]),
             bg_checksum: read_le16(&data[0x1e..]),
-            bg_block_bitmap_hi: if s_desc_size >= 4 {
+            bg_block_bitmap_hi: if data.len() >= 0x24 {
                 Some(read_le32(&data[0x20..]))
             } else {
                 None
             },
-            bg_inode_bitmap_hi: if s_desc_size >= 8 {
+            bg_inode_bitmap_hi: if data.len() >= 0x28 {
                 Some(read_le32(&data[0x24..]))
             } else {
                 None
             },
-            bg_inode_table_hi: if s_desc_size >= 12 {
+            bg_inode_table_hi: if data.len() >= 0x2c {
                 Some(read_le32(&data[0x28..]))
             } else {
                 None
             },
-            bg_free_blocks_count_hi: if s_desc_size >= 14 {
+            bg_free_blocks_count_hi: if data.len() >= 0x2e {
                 Some(read_le16(&data[0x2c..]))
             } else {
                 None
             },
-            bg_free_inodes_count_hi: if s_desc_size >= 16 {
+            bg_free_inodes_count_hi: if data.len() >= 0x30 {
                 Some(read_le16(&data[0x2e..]))
             } else {
                 None
             },
-            bg_used_dirs_count_hi: if s_desc_size >= 18 {
+            bg_used_dirs_count_hi: if data.len() >= 0x32 {
                 Some(read_le16(&data[0x30..]))
             } else {
                 None
             },
-            bg_itable_unused_hi: if s_desc_size >= 20 {
+            bg_itable_unused_hi: if data.len() >= 0x34 {
                 Some(read_le16(&data[0x32..]))
             } else {
                 None
             },
-            bg_exclude_bitmap_hi: if s_desc_size >= 24 {
+            bg_exclude_bitmap_hi: if data.len() >= 0x38 {
                 Some(read_le32(&data[0x34..]))
             } else {
                 None
             },
-            bg_block_bitmap_csum_hi: if s_desc_size >= 26 {
+            bg_block_bitmap_csum_hi: if data.len() >= 0x3a {
                 Some(read_be16(&data[0x38..]))
             } else {
                 None
             },
-            bg_inode_bitmap_csum_hi: if s_desc_size >= 28 {
+            bg_inode_bitmap_csum_hi: if data.len() >= 0x3c {
                 Some(read_be16(&data[0x3a..]))
             } else {
                 None
             },
-            bg_reserved: if s_desc_size >= 32 {
+            bg_reserved: if data.len() >= 0x40 {
                 Some(read_le32(&data[0x3c..]))
             } else {
                 None

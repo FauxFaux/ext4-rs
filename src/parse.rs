@@ -385,11 +385,7 @@ where
         assumption_failed("inode isn't bigger than the minimum length")
     );
 
-    let i_extra_isize = if data.len() < 0x82 {
-        0
-    } else {
-        read_le16(&data[0x80..0x82])
-    };
+    let i_extra_isize = RawInode::peek_i_extra_isize(&data).unwrap_or(0);
     let inode_end = INODE_BASE_LEN + usize::try_from(i_extra_isize)?;
 
     ensure!(
@@ -401,7 +397,7 @@ where
         ))
     );
 
-    let raw = RawInode::from_slice(&data);
+    let raw = RawInode::from_slice(&data[..inode_end]);
 
     let mut checksum_prefix = None;
 

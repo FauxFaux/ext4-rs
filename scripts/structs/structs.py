@@ -16,7 +16,7 @@ TYPES = {
 }
 
 
-def load(struct_name: str, lines: Iterable[str], extra_is_arg: bool, extra_field: str, core_size: int):
+def load(struct_name: str, lines: Iterable[str], core_size: int):
     run = 0
 
     fields = []
@@ -45,7 +45,7 @@ def load(struct_name: str, lines: Iterable[str], extra_is_arg: bool, extra_field
     ret = f'pub struct Raw{struct_name} {{\n'
 
     def is_extra():
-        return start >= core_size and not name == extra_field
+        return start >= core_size
 
     for (name, kind, length, conv, start, comment) in fields:
         if comment:
@@ -66,7 +66,7 @@ def load(struct_name: str, lines: Iterable[str], extra_is_arg: bool, extra_field
     def read_field():
         s = ''
         if is_extra():
-            s += f'if {extra_field} >= {start - core_size + length} {{ Some('
+            s += f'if data.len() >= 0x{start + length:02x} {{ Some('
         if conv:
             s += f'{conv}(&data[0x{start:02x}..])'
         else:
@@ -75,23 +75,28 @@ def load(struct_name: str, lines: Iterable[str], extra_is_arg: bool, extra_field
             s += ') } else { None }'
         return s
 
+    peek = ['i_extra_isize']
+
     ret += f'impl Raw{struct_name} {{\n'
     ret += '    pub fn from_slice(data: &[u8]'
-    if extra_is_arg:
-        ret += f', {extra_field}: u16'
     ret += ') -> Self {\n'
-    if not extra_is_arg:
-        (name, kind, length, conv, start, comment) = next(x for x in fields if x[0] == extra_field)
-        ret += f'        let {extra_field} = {conv}(&data[0x{start:02x}..]);\n'
-
+    ret += f'        assert!(data.len() >= 0x{core_size:02x});'
     ret += '        Self {\n'
     for (name, kind, length, conv, start, comment) in fields:
         ret += f'            {name}'
-        if name != extra_field:
-            ret += f': {read_field()}'
+        ret += f': {read_field()}'
         ret += ',\n'
 
-    ret += '        }\n    }\n}\n\n'
+    ret += '        }\n    }\n\n'
+    for (name, kind, length, conv, start, comment) in fields:
+        if name not in peek:
+            continue
+        ret += f'    pub fn peek_{name}(data: &[u8]) -> Option<{kind}> {{\n'
+        ret += f'        {read_field()}\n'
+        ret += '     }\n'
+    ret += '}\n\n'
+
+
 
     return ret
 
@@ -107,13 +112,12 @@ def main():
     ret += 'use crate::read_lei32;\n'
     ret += '\n'
 
-    for (name, f, extra_is_arg, extra_field, core_size) in [
-        # TODO: kinda optional
-        ('Inode', 'inode', False, 'i_extra_isize', 128),
-        ('BlockGroup', 'block-group', True, 's_desc_size', 32),
+    for (name, f, core_size) in [
+        ('Inode', 'inode', 128),
+        ('BlockGroup', 'block-group', 32),
     ]:
         with open(root_dir + f + '.spec') as spec:
-            ret += load(name, spec, extra_is_arg, extra_field, core_size)
+            ret += load(name, spec, core_size)
 
     print(ret)
 
