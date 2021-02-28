@@ -28,7 +28,7 @@ use anyhow::ensure;
 use anyhow::Context;
 use anyhow::Error;
 use bitflags::bitflags;
-use byteorder::{LittleEndian, ReadBytesExt};
+use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
 use positioned_io::ReadAt;
 
 mod block_groups;
@@ -629,6 +629,12 @@ fn load_maj_min(core: [u8; INODE_CORE_SIZE]) -> (u16, u32) {
 fn read_le16(from: &[u8]) -> u16 {
     use byteorder::ByteOrder;
     LittleEndian::read_u16(from)
+}
+
+#[inline]
+fn read_be16(from: &[u8]) -> u16 {
+    use byteorder::ByteOrder;
+    BigEndian::read_u16(from)
 }
 
 #[inline]

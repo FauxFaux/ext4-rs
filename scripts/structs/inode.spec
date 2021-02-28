@@ -22,7 +22,6 @@ __le16 l_i_gid_high;   /* were reserved2[0] */
 __le16 l_i_checksum_lo;/* crc32c(uuid+inum+inode) LE */
 __le16 l_i_reserved;
 __le16 i_extra_isize;
-extra_size i_extra_isize;
 __le16 i_checksum_hi;  /* crc32c(uuid+inum+inode) BE */
 __le32 i_ctime_extra;  /* extra Change time      (nsec << 2 | epoch) */
 __le32 i_mtime_extra;  /* extra Modification time(nsec << 2 | epoch) */

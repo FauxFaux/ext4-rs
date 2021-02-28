@@ -1,5 +1,6 @@
 use std::convert::TryInto;
 
+use crate::read_be16;
 use crate::read_le16;
 use crate::read_le32;
 use crate::read_lei32;
@@ -69,7 +70,6 @@ pub struct RawInode {
 impl RawInode {
     pub fn from_slice(data: &[u8]) -> Self {
         let i_extra_isize = read_le16(&data[0x80..]);
-
         Self {
             i_mode: read_le16(&data[0x00..]),
             i_uid: read_le16(&data[0x02..]),
@@ -95,43 +95,165 @@ impl RawInode {
             l_i_checksum_lo: read_le16(&data[0x7c..]),
             l_i_reserved: read_le16(&data[0x7e..]),
             i_extra_isize,
-            i_checksum_hi: if i_extra_isize >= 2 {
+            i_checksum_hi: if i_extra_isize >= 4 {
                 Some(read_le16(&data[0x82..]))
             } else {
                 None
             },
-            i_ctime_extra: if i_extra_isize >= 6 {
+            i_ctime_extra: if i_extra_isize >= 8 {
                 Some(read_le32(&data[0x84..]))
             } else {
                 None
             },
-            i_mtime_extra: if i_extra_isize >= 10 {
+            i_mtime_extra: if i_extra_isize >= 12 {
                 Some(read_le32(&data[0x88..]))
             } else {
                 None
             },
-            i_atime_extra: if i_extra_isize >= 14 {
+            i_atime_extra: if i_extra_isize >= 16 {
                 Some(read_le32(&data[0x8c..]))
             } else {
                 None
             },
-            i_crtime: if i_extra_isize >= 18 {
+            i_crtime: if i_extra_isize >= 20 {
                 Some(read_lei32(&data[0x90..]))
             } else {
                 None
             },
-            i_crtime_extra: if i_extra_isize >= 22 {
+            i_crtime_extra: if i_extra_isize >= 24 {
                 Some(read_le32(&data[0x94..]))
             } else {
                 None
             },
-            i_version_hi: if i_extra_isize >= 26 {
+            i_version_hi: if i_extra_isize >= 28 {
                 Some(read_le32(&data[0x98..]))
             } else {
                 None
             },
-            i_projid: if i_extra_isize >= 30 {
+            i_projid: if i_extra_isize >= 32 {
                 Some(read_le32(&data[0x9c..]))
+            } else {
+                None
+            },
+        }
+    }
+}
+
+pub struct RawBlockGroup {
+    /* Blocks bitmap block */
+    pub bg_block_bitmap_lo: u32,
+    /* Inodes bitmap block */
+    pub bg_inode_bitmap_lo: u32,
+    /* Inodes table block */
+    pub bg_inode_table_lo: u32,
+    /* Free blocks count */
+    pub bg_free_blocks_count_lo: u16,
+    /* Free inodes count */
+    pub bg_free_inodes_count_lo: u16,
+    /* Directories count */
+    pub bg_used_dirs_count_lo: u16,
+    /* EXT4_BG_flags (INODE_UNINIT, etc) */
+    pub bg_flags: u16,
+    /* Exclude bitmap for snapshots */
+    pub bg_exclude_bitmap_lo: u32,
+    /* crc32c(s_uuid+grp_num+bbitmap) LE */
+    pub bg_block_bitmap_csum_lo: u16,
+    /* crc32c(s_uuid+grp_num+ibitmap) LE */
+    pub bg_inode_bitmap_csum_lo: u16,
+    /* Unused inodes count */
+    pub bg_itable_unused_lo: u16,
+    /* crc16(sb_uuid+group+desc) */
+    pub bg_checksum: u16,
+    /* Blocks bitmap block MSB */
+    pub bg_block_bitmap_hi: Option<u32>,
+    /* Inodes bitmap block MSB */
+    pub bg_inode_bitmap_hi: Option<u32>,
+    /* Inodes table block MSB */
+    pub bg_inode_table_hi: Option<u32>,
+    /* Free blocks count MSB */
+    pub bg_free_blocks_count_hi: Option<u16>,
+    /* Free inodes count MSB */
+    pub bg_free_inodes_count_hi: Option<u16>,
+    /* Directories count MSB */
+    pub bg_used_dirs_count_hi: Option<u16>,
+    /* Unused inodes count MSB */
+    pub bg_itable_unused_hi: Option<u16>,
+    /* Exclude bitmap block MSB */
+    pub bg_exclude_bitmap_hi: Option<u32>,
+    /* crc32c(s_uuid+grp_num+bbitmap) BE */
+    pub bg_block_bitmap_csum_hi: Option<u16>,
+    /* crc32c(s_uuid+grp_num+ibitmap) BE */
+    pub bg_inode_bitmap_csum_hi: Option<u16>,
+    pub bg_reserved: Option<u32>,
+}
+
+impl RawBlockGroup {
+    pub fn from_slice(data: &[u8], s_desc_size: u16) -> Self {
+        Self {
+            bg_block_bitmap_lo: read_le32(&data[0x00..]),
+            bg_inode_bitmap_lo: read_le32(&data[0x04..]),
+            bg_inode_table_lo: read_le32(&data[0x08..]),
+            bg_free_blocks_count_lo: read_le16(&data[0x0c..]),
+            bg_free_inodes_count_lo: read_le16(&data[0x0e..]),
+            bg_used_dirs_count_lo: read_le16(&data[0x10..]),
+            bg_flags: read_le16(&data[0x12..]),
+            bg_exclude_bitmap_lo: read_le32(&data[0x14..]),
+            bg_block_bitmap_csum_lo: read_le16(&data[0x18..]),
+            bg_inode_bitmap_csum_lo: read_le16(&data[0x1a..]),
+            bg_itable_unused_lo: read_le16(&data[0x1c..]),
+            bg_checksum: read_le16(&data[0x1e..]),
+            bg_block_bitmap_hi: if s_desc_size >= 4 {
+                Some(read_le32(&data[0x20..]))
+            } else {
+                None
+            },
+            bg_inode_bitmap_hi: if s_desc_size >= 8 {
+                Some(read_le32(&data[0x24..]))
+            } else {
+                None
+            },
+            bg_inode_table_hi: if s_desc_size >= 12 {
+                Some(read_le32(&data[0x28..]))
+            } else {
+                None
+            },
+            bg_free_blocks_count_hi: if s_desc_size >= 14 {
+                Some(read_le16(&data[0x2c..]))
+            } else {
+                None
+            },
+            bg_free_inodes_count_hi: if s_desc_size >= 16 {
+                Some(read_le16(&data[0x2e..]))
+            } else {
+                None
+            },
+            bg_used_dirs_count_hi: if s_desc_size >= 18 {
+                Some(read_le16(&data[0x30..]))
+            } else {
+                None
+            },
+            bg_itable_unused_hi: if s_desc_size >= 20 {
+                Some(read_le16(&data[0x32..]))
+            } else {
+                None
+            },
+            bg_exclude_bitmap_hi: if s_desc_size >= 24 {
+                Some(read_le32(&data[0x34..]))
+            } else {
+                None
+            },
+            bg_block_bitmap_csum_hi: if s_desc_size >= 26 {
+                Some(read_be16(&data[0x38..]))
+            } else {
+                None
+            },
+            bg_inode_bitmap_csum_hi: if s_desc_size >= 28 {
+                Some(read_be16(&data[0x3a..]))
+            } else {
+                None
+            },
+            bg_reserved: if s_desc_size >= 32 {
+                Some(read_le32(&data[0x3c..]))
             } else {
                 None
             },
