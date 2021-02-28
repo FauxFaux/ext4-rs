@@ -5,7 +5,7 @@ use std::convert::TryFrom;
 use std::ffi::OsStr;
 use std::fs;
 use std::io;
-use std::io::{Read, Seek, SeekFrom};
+use std::io::Read;
 use std::path::PathBuf;
 use std::process::Stdio;
 
@@ -24,7 +24,8 @@ fn all_types() -> Result<()> {
             .read(true)
             .write(true)
             .create(true)
-            .open(image_name).unwrap();
+            .open(image_name)
+            .unwrap();
 
         let partitions =
             bootsector::list_partitions(&mut img, &bootsector::Options::default()).unwrap();
@@ -47,7 +48,7 @@ fn all_types() -> Result<()> {
                 Ok(n) => println!("write_superblock(): nbytes: {:?}", n),
                 Err(e) => {
                     println!("write_superblock(): error: {:?}", e);
-                    panic!(e);
+                    panic!("{}", e);
                 }
             }
             let root = superblock.root().unwrap();

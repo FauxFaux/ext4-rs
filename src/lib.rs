@@ -700,6 +700,7 @@ where
         // In particular: If the sparse_super feature flag is set, redundant copies of the superblock
         // and group descriptors are kept only in the groups whose group number is either 0 or a power
         // of 3, 5, or 7. If the flag is not set, redundant copies are kept in all groups.
+        // TODO Find out if superblock updates are meant to be written to the journal first.
         let nbytes = self.inner.write_at(1024, &mut entire_superblock)?;
 
         Ok(nbytes)
