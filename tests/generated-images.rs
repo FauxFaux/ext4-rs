@@ -5,7 +5,7 @@ use std::convert::TryFrom;
 use std::ffi::OsStr;
 use std::fs;
 use std::io;
-use std::io::{Read, Seek, SeekFrom};
+use std::io::Read;
 use std::path::PathBuf;
 use std::process::Stdio;
 
@@ -19,7 +19,13 @@ fn all_types() -> Result<()> {
     let mut files_successfully_processed = 0u64;
 
     for image_name in open_assets()?.entries()? {
-        let mut img = fs::File::open(image_name)?;
+        // let mut img = fs::File::open(image_name)?;
+        let mut img = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(image_name)
+            .unwrap();
 
         let partitions =
             bootsector::list_partitions(&mut img, &bootsector::Options::default()).unwrap();
@@ -35,7 +41,16 @@ fn all_types() -> Result<()> {
             }
 
             let part_reader = positioned_io::Slice::new(&mut img, part.first_byte, Some(part.len));
-            let superblock = ext4::SuperBlock::new(part_reader).unwrap();
+            let mut superblock = ext4::SuperBlock::new(part_reader).unwrap();
+            println!("superblock: {:?}", superblock);
+            let nbytes = superblock.write_superblock();
+            match nbytes {
+                Ok(n) => println!("write_superblock(): nbytes: {:?}", n),
+                Err(e) => {
+                    println!("write_superblock(): error: {:?}", e);
+                    panic!("{}", e);
+                }
+            }
             let root = superblock.root().unwrap();
             superblock
                 .walk(&root, "", &mut |fs, path, inode, enhanced| {
