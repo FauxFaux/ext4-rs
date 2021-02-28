@@ -20,6 +20,7 @@ repository = "FauxFaux/ext4-rs"
 [dependencies]
 anyhow = "1"
 bitflags = "1"
+binread = "1"
 byteorder = "1"
 crc = "1"
 positioned-io = "0.2"

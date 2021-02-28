@@ -1,76 +1,133 @@
 #!/usr/bin/env python3
 
+import os
 import re
+from typing import Iterable
 
-import sys
+root_dir = os.path.dirname(os.path.realpath(__file__)) + '/'
 
-LINE = re.compile(r'\s*(\w+)\s+(\w+)\s*(?:\[(\w+)\])?;\s*(/\*.*\*/)?\s*')
+SPEC_LINE = re.compile(r'\s*(\w+)\s+(\w+)\s*(?:\[(\w+)\])?;\s*(/\*.*\*/)?\s*')
 
-LE16 = (2, 'read_le16')
-LE32 = (4, 'read_le32')
+CONV_ARRAY = "I'm an array"
 
 TYPES = {
-    '__le16': LE16,
-    '__le32': LE32,
+    '__u8': (1, None, 'u8'),
+    '__be16': (2, 'read_be16', 'u16'),
+    '__le16': (2, 'read_le16', 'u16'),
+    '__le32': (4, 'read_le32', 'u32'),
+    '__le64': (8, 'read_le64', 'u64'),
+    '__lei32': (4, 'read_lei32', 'i32'),
 }
 
 
-def load(lines):
-    extra_size = None
-    extra_size_counter = 0
+def load(struct_name: str, lines: Iterable[str], core_size: int):
     run = 0
 
-    out = []
+    fields = []
 
     for line in lines:
         line = line.strip()
         if not line:
             continue
-        ma = LINE.match(line)
+        ma = SPEC_LINE.match(line)
         if not ma:
             raise Exception('can\'t read: ' + line)
 
         (types, name, array_len, comment) = ma.groups()
 
-        if 'extra_size' == types:
-            extra_size = name
-            extra_size_counter = 0
-            continue
-
+        (length, mapping_function, kind) = TYPES[types]
         if array_len:
-            length = int(array_len)
-            mapping_function = None
-        else:
-            (length, mapping_function) = TYPES[types]
+            if 1 != length:
+                raise Exception(f'only support byte arrays, not {name, types}')
+            length *= int(array_len)
+            mapping_function = CONV_ARRAY
 
-        end_byte = run + length
-        extra_size_counter += length
-
-        out.append(('let {:17} = {}{:10}&data[0x{:02X}..0x{:02X}]{}{};'.format(
-            name,
-            'if {} < {:2} {{ None }} else {{ Some('.format(extra_size, extra_size_counter) if extra_size else '',
-            (mapping_function + '(') if mapping_function else '',
-            run, end_byte,
-            ')' if mapping_function else ' ',
-            ') }' if extra_size else ''
-        ), comment))
+        fields.append((name, kind, length, mapping_function, run, comment))
 
         run += length
 
-    # longest = max(len(x) for x, _ in out)
-    # format = '{:' + str(longest) + '} {}'
-    format = '{} {}'
-    for line, comment in out:
-        if comment:
-            print(format.format(line, comment))
-        else:
-            print(line)
+    ret = f'pub struct Raw{struct_name} {{\n'
 
+    def is_extra():
+        return start >= core_size
+
+    for (name, kind, length, conv, start, comment) in fields:
+        if comment:
+            ret += f'    {comment}\n'
+        ret += f'    pub {name}: '
+        if is_extra():
+            ret += 'Option<'
+        if conv == CONV_ARRAY:
+            ret += f'[{kind}; {length}]'
+        else:
+            ret += kind
+        if is_extra():
+            ret += '>'
+        ret += ',\n'
+
+    ret += '}\n\n'
+
+    def read_field():
+        s = ''
+        if is_extra():
+            s += f'if data.len() >= 0x{start + length:02x} {{ Some('
+        if length == 1:
+            s += f'data[0x{start:02x}]'
+        elif conv == CONV_ARRAY:
+            s += f'data[0x{start:02x}..0x{start + length:02x}].try_into().expect("sliced")'
+        else:
+            s += f'{conv}(&data[0x{start:02x}..])'
+        if is_extra():
+            s += ') } else { None }'
+        return s
+
+    peek = ['i_extra_isize']
+
+    ret += f'impl Raw{struct_name} {{\n'
+    ret += '    pub fn from_slice(data: &[u8]'
+    ret += ') -> Self {\n'
+    ret += f'        assert!(data.len() >= 0x{core_size:02x});\n'
+    ret += '        Self {\n'
+    for (name, kind, length, conv, start, comment) in fields:
+        ret += f'            {name}'
+        ret += f': {read_field()}'
+        ret += ',\n'
+
+    ret += '        }\n    }\n\n'
+    for (name, kind, length, conv, start, comment) in fields:
+        if name not in peek:
+            continue
+        ret += f'    pub fn peek_{name}(data: &[u8]) -> Option<{kind}> {{\n'
+        ret += f'        {read_field()}\n'
+        ret += '     }\n'
+    ret += '}\n\n'
+
+
+
+    return ret
 
 
 def main():
-    with open(sys.argv[1]) as spec:
-        load(spec)
+    ret = ''
+
+    ret += 'use std::convert::TryInto;\n'
+    ret += '\n'
+    ret += 'use crate::read_be16;\n'
+    ret += 'use crate::read_le16;\n'
+    ret += 'use crate::read_le32;\n'
+    ret += 'use crate::read_le64;\n'
+    ret += 'use crate::read_lei32;\n'
+    ret += '\n'
+
+    for (name, f, core_size) in [
+        ('Inode', 'inode', 128),
+        ('BlockGroup', 'block-group', 32),
+        ('Superblock', 'superblock', 1024),
+    ]:
+        with open(root_dir + f + '.spec') as spec:
+            ret += load(name, spec, core_size)
+
+    print(ret)
 
 
 if __name__ == '__main__':
