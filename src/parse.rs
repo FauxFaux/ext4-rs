@@ -14,13 +14,14 @@ use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
 use positioned_io::Cursor;
 use positioned_io::ReadAt;
 
+use crate::assumption_failed;
 use crate::not_found;
 use crate::parse_error;
+use crate::raw::RawInode;
 use crate::read_le16;
 use crate::read_le32;
 use crate::unsupported_feature;
 use crate::Time;
-use crate::{assumption_failed, read_lei32};
 
 const EXT4_SUPER_MAGIC: u16 = 0xEF53;
 const INODE_BASE_LEN: usize = 128;
@@ -384,34 +385,6 @@ where
         assumption_failed("inode isn't bigger than the minimum length")
     );
 
-    // generated from inode.spec by structs.py
-    let i_mode = read_le16(&data[0x00..0x02]); /* File mode */
-    let i_uid = read_le16(&data[0x02..0x04]); /* Low 16 bits of Owner Uid */
-    let i_size_lo = read_le32(&data[0x04..0x08]); /* Size in bytes */
-    let i_atime = read_lei32(&data[0x08..0x0C]); /* Access time */
-    let i_ctime = read_lei32(&data[0x0C..0x10]); /* Inode Change time */
-    let i_mtime = read_lei32(&data[0x10..0x14]); /* Modification time */
-    //    let i_dtime           = read_le32(&data[0x14..0x18]); /* Deletion Time */
-    let i_gid = read_le16(&data[0x18..0x1A]); /* Low 16 bits of Group Id */
-    let i_links_count = read_le16(&data[0x1A..0x1C]); /* Links count */
-    //    let i_blocks_lo       = read_le32(&data[0x1C..0x20]); /* Blocks count */
-    let i_flags = read_le32(&data[0x20..0x24]); /* File flags */
-    //    let l_i_version       = read_le32(&data[0x24..0x28]);
-
-    let mut i_block = [0u8; crate::INODE_CORE_SIZE];
-    i_block.clone_from_slice(&data[0x28..0x64]); /* Pointers to blocks */
-
-    let i_generation = read_le32(&data[0x64..0x68]); /* File version (for NFS) */
-    let i_file_acl_lo = read_le32(&data[0x68..0x6C]); /* File ACL */
-    let i_size_high = read_le32(&data[0x6C..0x70]);
-    //    let i_obso_faddr      = read_le32(&data[0x70..0x74]); /* Obsoleted fragment address */
-    //    let l_i_blocks_high   = read_le16(&data[0x74..0x76]); /* were l_i_reserved1 */
-    let l_i_file_acl_high = read_le16(&data[0x76..0x78]);
-    let l_i_uid_high = read_le16(&data[0x78..0x7A]); /* these 2 fields */
-    let l_i_gid_high = read_le16(&data[0x7A..0x7C]); /* were reserved2[0] */
-    let l_i_checksum_lo = read_le16(&data[0x7C..0x7E]); /* crc32c(uuid+inum+inode) LE */
-    //    let l_i_reserved      = read_le16(&data[0x7E..0x80]);
-
     let i_extra_isize = if data.len() < 0x82 {
         0
     } else {
@@ -428,38 +401,8 @@ where
         ))
     );
 
-    let i_checksum_hi = if i_extra_isize < 2 + 2 {
-        None
-    } else {
-        Some(read_le16(&data[0x82..0x84]))
-    }; /* crc32c(uuid+inum+inode) BE */
-    let i_ctime_extra = if i_extra_isize < 6 + 2 {
-        None
-    } else {
-        Some(read_le32(&data[0x84..0x88]))
-    }; /* extra Change time      (nsec << 2 | epoch) */
-    let i_mtime_extra = if i_extra_isize < 10 + 2 {
-        None
-    } else {
-        Some(read_le32(&data[0x88..0x8C]))
-    }; /* extra Modification time(nsec << 2 | epoch) */
-    let i_atime_extra = if i_extra_isize < 14 + 2 {
-        None
-    } else {
-        Some(read_le32(&data[0x8C..0x90]))
-    }; /* extra Access time      (nsec << 2 | epoch) */
-    let i_crtime = if i_extra_isize < 18 + 2 {
-        None
-    } else {
-        Some(read_lei32(&data[0x90..0x94]))
-    }; /* File Creation time */
-    let i_crtime_extra = if i_extra_isize < 22 + 2 {
-        None
-    } else {
-        Some(read_le32(&data[0x94..0x98]))
-    }; /* extra FileCreationtime (nsec << 2 | epoch) */
-    //    let i_version_hi      = if i_extra_isize < 26 { None } else { Some(read_le32(&data[0x98..0x9C])) }; /* high 32 bits for 64-bit version */
-    //    let i_projid          = if i_extra_isize < 30 { None } else { Some(read_le32(&data[0x9C..0xA0])) }; /* Project ID */
+    let raw = RawInode::from_slice(&data);
+
     let mut checksum_prefix = None;
 
     if let Some(uuid_checksum) = uuid_checksum {
@@ -468,18 +411,18 @@ where
 
         let mut bytes = [0u8; 8];
         LittleEndian::write_u32(&mut bytes[0..4], number);
-        LittleEndian::write_u32(&mut bytes[4..8], i_generation);
+        LittleEndian::write_u32(&mut bytes[4..8], raw.i_generation);
         checksum_prefix = Some(ext4_style_crc32c_le(uuid_checksum, &bytes));
 
-        if i_checksum_hi.is_some() {
+        if raw.i_checksum_hi.is_some() {
             data[0x82] = 0;
             data[0x83] = 0;
         }
 
         let computed = ext4_style_crc32c_le(checksum_prefix.unwrap(), &data);
 
-        if let Some(high) = i_checksum_hi {
-            let expected = u32::from(l_i_checksum_lo) | (u32::from(high) << 16);
+        if let Some(high) = raw.i_checksum_hi {
+            let expected = u32::from(raw.l_i_checksum_lo) | (u32::from(high) << 16);
             ensure!(
                 expected == computed,
                 assumption_failed(format!(
@@ -490,10 +433,10 @@ where
         } else {
             let short_computed = u16::try_from(computed & 0xFFFF).unwrap();
             ensure!(
-                l_i_checksum_lo == short_computed,
+                raw.l_i_checksum_lo == short_computed,
                 assumption_failed(format!(
                     "short checksum mismatch: on-disc: {:04x} computed: {:04x}",
-                    l_i_checksum_lo, short_computed
+                    raw.l_i_checksum_lo, short_computed
                 ))
             );
         }
@@ -507,35 +450,37 @@ where
         read_xattrs(&mut xattrs, table_start, table_start)?;
     }
 
-    if 0 != i_file_acl_lo || 0 != l_i_file_acl_high {
-        let block = u64::from(i_file_acl_lo) | (u64::from(l_i_file_acl_high) << 32);
+    if 0 != raw.i_file_acl_lo || 0 != raw.l_i_file_acl_high {
+        let block = u64::from(raw.i_file_acl_lo) | (u64::from(raw.l_i_file_acl_high) << 32);
 
         xattr_block(&mut xattrs, load_block(block)?, uuid_checksum, block)
             .with_context(|| anyhow!("loading xattr block {}", block))?
     }
 
     let stat = crate::Stat {
-        extracted_type: crate::FileType::from_mode(i_mode).ok_or_else(|| {
-            unsupported_feature(format!("unexpected file type in mode: {:b}", i_mode))
+        extracted_type: crate::FileType::from_mode(raw.i_mode).ok_or_else(|| {
+            unsupported_feature(format!("unexpected file type in mode: {:b}", raw.i_mode))
         })?,
-        file_mode: i_mode & 0b111_111_111_111,
-        uid: u32::from(i_uid) | (u32::from(l_i_uid_high) << 16),
-        gid: u32::from(i_gid) | (u32::from(l_i_gid_high) << 16),
-        size: u64::from(i_size_lo) | (u64::from(i_size_high) << 32),
-        atime: Time::from_extra(i_atime, i_atime_extra),
-        ctime: Time::from_extra(i_ctime, i_ctime_extra),
-        mtime: Time::from_extra(i_mtime, i_mtime_extra),
-        btime: i_crtime.map(|i_crtime| Time::from_extra(i_crtime, i_crtime_extra)),
-        link_count: i_links_count,
+        file_mode: raw.i_mode & 0b111_111_111_111,
+        uid: u32::from(raw.i_uid) | (u32::from(raw.l_i_uid_high) << 16),
+        gid: u32::from(raw.i_gid) | (u32::from(raw.l_i_gid_high) << 16),
+        size: u64::from(raw.i_size_lo) | (u64::from(raw.i_size_high) << 32),
+        atime: Time::from_extra(raw.i_atime, raw.i_atime_extra),
+        ctime: Time::from_extra(raw.i_ctime, raw.i_ctime_extra),
+        mtime: Time::from_extra(raw.i_mtime, raw.i_mtime_extra),
+        btime: raw
+            .i_crtime
+            .map(|i_crtime| Time::from_extra(i_crtime, raw.i_crtime_extra)),
+        link_count: raw.i_links_count,
         xattrs,
     };
 
     Ok(ParsedInode {
         stat,
-        flags: crate::InodeFlags::from_bits(i_flags).ok_or_else(|| {
-            unsupported_feature(format!("unrecognised inode flags: {:b}", i_flags))
+        flags: crate::InodeFlags::from_bits(raw.i_flags).ok_or_else(|| {
+            unsupported_feature(format!("unrecognised inode flags: {:b}", raw.i_flags))
         })?,
-        core: i_block,
+        core: raw.i_block,
         checksum_prefix,
     })
 }

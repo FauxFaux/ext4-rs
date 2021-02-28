@@ -33,6 +33,7 @@ use positioned_io::ReadAt;
 
 mod block_groups;
 mod extents;
+mod raw;
 
 /// Raw object parsing API. Not versioned / supported.
 pub mod parse;
