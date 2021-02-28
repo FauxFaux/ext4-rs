@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::io;
-use std::io::Read;
 use std::io::Seek;
 
 use anyhow::anyhow;
@@ -10,14 +9,14 @@ use anyhow::ensure;
 use anyhow::Context;
 use anyhow::Error;
 use bitflags::bitflags;
-use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
+use byteorder::{ByteOrder, LittleEndian};
 use positioned_io::Cursor;
 use positioned_io::ReadAt;
 
 use crate::assumption_failed;
 use crate::not_found;
 use crate::parse_error;
-use crate::raw::RawInode;
+use crate::raw::{RawInode, RawSuperblock};
 use crate::read_le16;
 use crate::read_le32;
 use crate::unsupported_feature;
@@ -84,83 +83,30 @@ where
     let mut entire_superblock = [0u8; 1024];
     reader.read_exact_at(1024, &mut entire_superblock)?;
 
-    let mut inner = io::Cursor::new(&mut entire_superblock[..]);
-
-    // <a cut -c 9- | fgrep ' s_' | fgrep -v ERR_ | while read ty nam comment; do printf "let %s =\n  inner.read_%s::<LittleEndian>()?; %s\n" $(echo $nam | tr -d ';') $(echo $ty | sed 's/__le/u/; s/__//') $comment; done
-    //    let s_inodes_count =
-    inner.read_u32::<LittleEndian>()?; /* Inodes count */
-    let s_blocks_count_lo = inner.read_u32::<LittleEndian>()?; /* Blocks count */
-    //    let s_r_blocks_count_lo =
-    inner.read_u32::<LittleEndian>()?; /* Reserved blocks count */
-    //    let s_free_blocks_count_lo =
-    inner.read_u32::<LittleEndian>()?; /* Free blocks count */
-    //    let s_free_inodes_count =
-    inner.read_u32::<LittleEndian>()?; /* Free inodes count */
-    let s_first_data_block = inner.read_u32::<LittleEndian>()?; /* First Data Block */
-    let s_log_block_size = inner.read_u32::<LittleEndian>()?; /* Block size */
-    //    let s_log_cluster_size =
-    inner.read_u32::<LittleEndian>()?; /* Allocation cluster size */
-    let s_blocks_per_group = inner.read_u32::<LittleEndian>()?; /* # Blocks per group */
-    //    let s_clusters_per_group =
-    inner.read_u32::<LittleEndian>()?; /* # Clusters per group */
-    let s_inodes_per_group = inner.read_u32::<LittleEndian>()?; /* # Inodes per group */
-    //    let s_mtime =
-    inner.read_u32::<LittleEndian>()?; /* Mount time */
-    //    let s_wtime =
-    inner.read_u32::<LittleEndian>()?; /* Write time */
-    //    let s_mnt_count =
-    inner.read_u16::<LittleEndian>()?; /* Mount count */
-    //    let s_max_mnt_count =
-    inner.read_u16::<LittleEndian>()?; /* Maximal mount count */
-    let s_magic = inner.read_u16::<LittleEndian>()?; /* Magic signature */
+    let raw = RawSuperblock::from_slice(&entire_superblock);
 
     ensure!(
-        EXT4_SUPER_MAGIC == s_magic,
-        not_found(format!("invalid magic number: {:x}", s_magic))
+        EXT4_SUPER_MAGIC == raw.s_magic,
+        not_found(format!("invalid magic number: {:x}", raw.s_magic))
     );
 
-    let s_state = inner.read_u16::<LittleEndian>()?; /* File system state */
-    //    let s_errors =
-    inner.read_u16::<LittleEndian>()?; /* Behaviour when detecting errors */
-    //    let s_minor_rev_level =
-    inner.read_u16::<LittleEndian>()?; /* minor revision level */
-    //    let s_lastcheck =
-    inner.read_u32::<LittleEndian>()?; /* time of last check */
-    //    let s_checkinterval =
-    inner.read_u32::<LittleEndian>()?; /* max. time between checks */
-    let s_creator_os = inner.read_u32::<LittleEndian>()?; /* OS */
-
     ensure!(
-        0 == s_creator_os,
+        0 == raw.s_creator_os,
         unsupported_feature(format!(
             "only support filesystems created on linux, not '{}'",
-            s_creator_os
+            raw.s_creator_os
         ))
     );
 
-    let s_rev_level = inner.read_u32::<LittleEndian>()?; /* Revision level */
-    //    let s_def_resuid =
-    inner.read_u16::<LittleEndian>()?; /* Default uid for reserved blocks */
-    //    let s_def_resgid =
-    inner.read_u16::<LittleEndian>()?; /* Default gid for reserved blocks */
-    //    let s_first_ino =
-    inner.read_u32::<LittleEndian>()?; /* First non-reserved inode */
-    let s_inode_size = inner.read_u16::<LittleEndian>()?; /* size of inode structure */
-    //    let s_block_group_nr =
-    inner.read_u16::<LittleEndian>()?; /* block group # of this superblock */
-    let s_feature_compat = inner.read_u32::<LittleEndian>()?; /* compatible feature set */
-
-    let compatible_features = CompatibleFeature::from_bits_truncate(s_feature_compat);
+    let compatible_features = CompatibleFeature::from_bits_truncate(raw.s_feature_compat);
 
     let load_xattrs = compatible_features.contains(CompatibleFeature::EXT_ATTR);
 
-    let s_feature_incompat = inner.read_u32::<LittleEndian>()?; /* incompatible feature set */
-
     let incompatible_features =
-        IncompatibleFeature::from_bits(s_feature_incompat).ok_or_else(|| {
+        IncompatibleFeature::from_bits(raw.s_feature_incompat).ok_or_else(|| {
             parse_error(format!(
                 "completely unsupported incompatible feature flag: {:b}",
-                s_feature_incompat
+                raw.s_feature_incompat
             ))
         })?;
 
@@ -179,10 +125,8 @@ where
 
     let long_structs = incompatible_features.contains(IncompatibleFeature::SIXTY_FOUR_BIT);
 
-    let s_feature_ro_compat = inner.read_u32::<LittleEndian>()?; /* readonly-compatible feature set */
-
     let compatible_features_read_only =
-        CompatibleFeatureReadOnly::from_bits_truncate(s_feature_ro_compat);
+        CompatibleFeatureReadOnly::from_bits_truncate(raw.s_feature_ro_compat);
 
     let has_checksums =
         compatible_features_read_only.contains(CompatibleFeatureReadOnly::METADATA_CSUM);
@@ -198,81 +142,15 @@ where
         not_found("checksums are disabled, but required by options")
     );
 
-    let mut s_uuid = [0; 16];
-    inner.read_exact(&mut s_uuid)?; /* 128-bit uuid for volume */
-    let mut s_volume_name = [0u8; 16];
-    inner.read_exact(&mut s_volume_name)?; /* volume name */
-    let mut s_last_mounted = [0u8; 64];
-    inner.read_exact(&mut s_last_mounted)?; /* directory where last mounted */
-    //    let s_algorithm_usage_bitmap =
-    inner.read_u32::<LittleEndian>()?; /* For compression */
-    //    let s_prealloc_blocks =
-    inner.read_u8()?; /* Nr of blocks to try to preallocate*/
-    //    let s_prealloc_dir_blocks =
-    inner.read_u8()?; /* Nr to preallocate for dirs */
-    //    let s_reserved_gdt_blocks =
-    inner.read_u16::<LittleEndian>()?; /* Per group desc for online growth */
-    let mut s_journal_uuid = [0u8; 16];
-    inner.read_exact(&mut s_journal_uuid)?; /* uuid of journal superblock */
-    //    let s_journal_inum =
-    inner.read_u32::<LittleEndian>()?; /* inode number of journal file */
-    //    let s_journal_dev =
-    inner.read_u32::<LittleEndian>()?; /* device number of journal file */
-    //    let s_last_orphan =
-    inner.read_u32::<LittleEndian>()?; /* start of list of inodes to delete */
-    let mut s_hash_seed = [0u8; 4 * 4];
-    inner.read_exact(&mut s_hash_seed)?; /* HTREE hash seed */
-    //    let s_def_hash_version =
-    inner.read_u8()?; /* Default hash version to use */
-    //    let s_jnl_backup_type =
-    inner.read_u8()?;
-    let s_desc_size = inner.read_u16::<LittleEndian>()?; /* size of group descriptor */
-    //    let s_default_mount_opts =
-    inner.read_u32::<LittleEndian>()?;
-    //    let s_first_meta_bg =
-    inner.read_u32::<LittleEndian>()?; /* First metablock block group */
-    //    let s_mkfs_time =
-    inner.read_u32::<LittleEndian>()?; /* When the filesystem was created */
-    let mut s_jnl_blocks = [0; 17 * 4];
-    inner.read_exact(&mut s_jnl_blocks)?; /* Backup of the journal inode */
-
-    let s_blocks_count_hi = if !long_structs {
-        None
-    } else {
-        Some(inner.read_u32::<LittleEndian>()?) /* Blocks count */
-    };
-    ////    let s_r_blocks_count_hi =
-    //        if !long_structs { None } else {
-    //            Some(inner.read_u32::<LittleEndian>()?) /* Reserved blocks count */
-    //        };
-    ////    let s_free_blocks_count_hi =
-    //        if !long_structs { None } else {
-    //            Some(inner.read_u32::<LittleEndian>()?) /* Free blocks count */
-    //        };
-    ////    let s_min_extra_isize =
-    //        if !long_structs { None } else {
-    //            Some(inner.read_u16::<LittleEndian>()?) /* All inodes have at least # bytes */
-    //        };
-    ////    let s_want_extra_isize =
-    //        if !long_structs { None } else {
-    //            Some(inner.read_u16::<LittleEndian>()?) /* New inodes should reserve # bytes */
-    //        };
-    ////    let s_flags =
-    //        if !long_structs { None } else {
-    //            Some(inner.read_u32::<LittleEndian>()?) /* Miscellaneous flags */
-    //        };
-
     // TODO: check s_checksum_type == 1 (crc32c)
 
     if has_checksums {
-        inner.seek(io::SeekFrom::End(-4))?;
-        let s_checksum = inner.read_u32::<LittleEndian>()?;
-        let expected = ext4_style_crc32c_le(!0, &inner.into_inner()[..(1024 - 4)]);
+        let expected = ext4_style_crc32c_le(!0, &entire_superblock[..(1024 - 4)]);
         ensure!(
-            s_checksum == expected,
+            raw.s_checksum == expected,
             assumption_failed(format!(
                 "superblock reports checksums supported, but didn't match: {:x} != {:x}",
-                s_checksum, expected
+                raw.s_checksum, expected
             ))
         );
     }
@@ -281,19 +159,21 @@ where
         const S_STATE_UNMOUNTED_CLEANLY: u16 = 0b01;
         const S_STATE_ERRORS_DETECTED: u16 = 0b10;
 
-        if s_state & S_STATE_UNMOUNTED_CLEANLY == 0 || s_state & S_STATE_ERRORS_DETECTED != 0 {
+        if raw.s_state & S_STATE_UNMOUNTED_CLEANLY == 0
+            || raw.s_state & S_STATE_ERRORS_DETECTED != 0
+        {
             return Err(parse_error(format!(
                 "filesystem is not in a clean state: {:b}",
-                s_state
+                raw.s_state
             )));
         }
     }
 
-    if 0 == s_inodes_per_group {
+    if 0 == raw.s_inodes_per_group {
         return Err(parse_error("inodes per group cannot be zero".to_string()));
     }
 
-    let block_size: u32 = match s_log_block_size {
+    let block_size: u32 = match raw.s_log_block_size {
         0 => 1024,
         1 => 2048,
         2 => 4096,
@@ -301,24 +181,24 @@ where
         _ => {
             return Err(parse_error(format!(
                 "unexpected block size: 2^{}",
-                s_log_block_size + 10
+                raw.s_log_block_size + 10
             )));
         }
     };
 
     if !long_structs {
         ensure!(
-            0 == s_desc_size,
+            0 == raw.s_desc_size,
             assumption_failed(format!(
                 "outside long mode, block group desc size must be zero, not {}",
-                s_desc_size
+                raw.s_desc_size
             ))
         );
     }
 
     ensure!(
-        1 == s_rev_level,
-        unsupported_feature(format!("rev level {}", s_rev_level))
+        1 == raw.s_rev_level,
+        unsupported_feature(format!("rev level {}", raw.s_rev_level))
     );
 
     let group_table_pos = if 1024 == block_size {
@@ -333,25 +213,25 @@ where
 
     let mut grouper = Cursor::new(&mut reader);
     grouper.seek(io::SeekFrom::Start(u64::from(group_table_pos)))?;
-    let blocks_count = (u64::from(s_blocks_count_lo)
-        + (u64::from(s_blocks_count_hi.unwrap_or(0)) << 32)
-        - u64::from(s_first_data_block)
-        + u64::from(s_blocks_per_group)
+    let blocks_count = (u64::from(raw.s_blocks_count_lo)
+        + (u64::from(raw.s_blocks_count_hi) << 32)
+        - u64::from(raw.s_first_data_block)
+        + u64::from(raw.s_blocks_per_group)
         - 1)
-        / u64::from(s_blocks_per_group);
+        / u64::from(raw.s_blocks_per_group);
 
     let groups = crate::block_groups::BlockGroups::new(
         &mut grouper,
         blocks_count,
-        s_desc_size,
-        s_inodes_per_group,
+        raw.s_desc_size,
+        raw.s_inodes_per_group,
         block_size,
-        s_inode_size,
+        raw.s_inode_size,
     )?;
 
     let uuid_checksum = if has_checksums {
         // TODO: check s_checksum_seed
-        Some(ext4_style_crc32c_le(!0, &s_uuid))
+        Some(ext4_style_crc32c_le(!0, &raw.s_uuid))
     } else {
         None
     };

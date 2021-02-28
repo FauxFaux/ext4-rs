@@ -644,6 +644,12 @@ fn read_le32(from: &[u8]) -> u32 {
 }
 
 #[inline]
+fn read_le64(from: &[u8]) -> u64 {
+    use byteorder::ByteOrder;
+    LittleEndian::read_u64(from)
+}
+
+#[inline]
 fn read_lei32(from: &[u8]) -> i32 {
     use byteorder::ByteOrder;
     LittleEndian::read_i32(from)

@@ -8,10 +8,14 @@ root_dir = os.path.dirname(os.path.realpath(__file__)) + '/'
 
 SPEC_LINE = re.compile(r'\s*(\w+)\s+(\w+)\s*(?:\[(\w+)\])?;\s*(/\*.*\*/)?\s*')
 
+CONV_ARRAY = "I'm an array"
+
 TYPES = {
+    '__u8': (1, None, 'u8'),
     '__be16': (2, 'read_be16', 'u16'),
     '__le16': (2, 'read_le16', 'u16'),
     '__le32': (4, 'read_le32', 'u32'),
+    '__le64': (8, 'read_le64', 'u64'),
     '__lei32': (4, 'read_lei32', 'i32'),
 }
 
@@ -31,12 +35,12 @@ def load(struct_name: str, lines: Iterable[str], core_size: int):
 
         (types, name, array_len, comment) = ma.groups()
 
+        (length, mapping_function, kind) = TYPES[types]
         if array_len:
-            length = int(array_len)
-            mapping_function = None
-            kind = None
-        else:
-            (length, mapping_function, kind) = TYPES[types]
+            if 1 != length:
+                raise Exception(f'only support byte arrays, not {name, types}')
+            length *= int(array_len)
+            mapping_function = CONV_ARRAY
 
         fields.append((name, kind, length, mapping_function, run, comment))
 
@@ -53,10 +57,10 @@ def load(struct_name: str, lines: Iterable[str], core_size: int):
         ret += f'    pub {name}: '
         if is_extra():
             ret += 'Option<'
-        if kind:
-            ret += kind
+        if conv == CONV_ARRAY:
+            ret += f'[{kind}; {length}]'
         else:
-            ret += f'[u8; {length}]'
+            ret += kind
         if is_extra():
             ret += '>'
         ret += ',\n'
@@ -67,10 +71,12 @@ def load(struct_name: str, lines: Iterable[str], core_size: int):
         s = ''
         if is_extra():
             s += f'if data.len() >= 0x{start + length:02x} {{ Some('
-        if conv:
-            s += f'{conv}(&data[0x{start:02x}..])'
-        else:
+        if length == 1:
+            s += f'data[0x{start:02x}]'
+        elif conv == CONV_ARRAY:
             s += f'data[0x{start:02x}..0x{start + length:02x}].try_into().expect("sliced")'
+        else:
+            s += f'{conv}(&data[0x{start:02x}..])'
         if is_extra():
             s += ') } else { None }'
         return s
@@ -80,7 +86,7 @@ def load(struct_name: str, lines: Iterable[str], core_size: int):
     ret += f'impl Raw{struct_name} {{\n'
     ret += '    pub fn from_slice(data: &[u8]'
     ret += ') -> Self {\n'
-    ret += f'        assert!(data.len() >= 0x{core_size:02x});'
+    ret += f'        assert!(data.len() >= 0x{core_size:02x});\n'
     ret += '        Self {\n'
     for (name, kind, length, conv, start, comment) in fields:
         ret += f'            {name}'
@@ -109,12 +115,14 @@ def main():
     ret += 'use crate::read_be16;\n'
     ret += 'use crate::read_le16;\n'
     ret += 'use crate::read_le32;\n'
+    ret += 'use crate::read_le64;\n'
     ret += 'use crate::read_lei32;\n'
     ret += '\n'
 
     for (name, f, core_size) in [
         ('Inode', 'inode', 128),
         ('BlockGroup', 'block-group', 32),
+        ('Superblock', 'superblock', 1024),
     ]:
         with open(root_dir + f + '.spec') as spec:
             ret += load(name, spec, core_size)
