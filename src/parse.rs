@@ -305,7 +305,7 @@ where
         }
     };
 
-    if !long_structs {
+    if !long_structs && !options.ignore_nonzero_block_group_desc_size_outside_long_mode {
         ensure!(
             0 == s_desc_size,
             assumption_failed(format!(
