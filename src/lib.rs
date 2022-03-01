@@ -275,6 +275,12 @@ where
         SuperBlock::new_with_options(inner, &Options::default())
     }
 
+
+    /// Returns inner R, consuming self
+    pub fn into_inner(self) -> R {
+        self.inner
+    }
+
     pub fn new_with_options(inner: R, options: &Options) -> Result<SuperBlock<R>, Error> {
         Ok(parse::superblock(inner, options)
             .with_context(|| anyhow!("failed to parse superblock"))?)
