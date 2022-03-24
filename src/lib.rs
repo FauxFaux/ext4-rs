@@ -264,6 +264,10 @@ impl Default for Checksums {
 #[derive(Debug, Default)]
 pub struct Options {
     pub checksums: Checksums,
+    /// If set to `true`, the check that the block group descriptor size is zero outside
+    /// long mode is skipped. This might be necessary to read some ext4 filesystems
+    /// created by possibly buggy tools or kernels.
+    pub ignore_nonzero_block_group_desc_size_outside_long_mode: bool,
 }
 
 impl<R> SuperBlock<R>
