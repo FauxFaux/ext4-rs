@@ -28,11 +28,12 @@ use anyhow::ensure;
 use anyhow::Context;
 use anyhow::Error;
 use bitflags::bitflags;
-use byteorder::{LittleEndian, ReadBytesExt};
+use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
 use positioned_io::ReadAt;
 
 mod block_groups;
 mod extents;
+mod raw;
 
 /// Raw object parsing API. Not versioned / supported.
 pub mod parse;
@@ -637,9 +638,21 @@ fn read_le16(from: &[u8]) -> u16 {
 }
 
 #[inline]
+fn read_be16(from: &[u8]) -> u16 {
+    use byteorder::ByteOrder;
+    BigEndian::read_u16(from)
+}
+
+#[inline]
 fn read_le32(from: &[u8]) -> u32 {
     use byteorder::ByteOrder;
     LittleEndian::read_u32(from)
+}
+
+#[inline]
+fn read_le64(from: &[u8]) -> u64 {
+    use byteorder::ByteOrder;
+    LittleEndian::read_u64(from)
 }
 
 #[inline]
