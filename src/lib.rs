@@ -275,7 +275,6 @@ where
         SuperBlock::new_with_options(inner, &Options::default())
     }
 
-
     /// Returns inner R, consuming self
     pub fn into_inner(self) -> R {
         self.inner
@@ -351,8 +350,11 @@ where
                 let child_node = self
                     .load_inode(entry.inode)
                     .with_context(|| anyhow!("loading {} ({:?})", entry.name, entry.file_type))?;
+
+                let path = std::path::Path::new(path).join(&entry.name);
+
                 if !self
-                    .walk(&child_node, &format!("{}/{}", path, entry.name), visit)
+                    .walk(&child_node, &path.to_string_lossy(), visit)
                     .with_context(|| anyhow!("processing '{}'", entry.name))?
                 {
                     return Ok(false);
@@ -369,7 +371,9 @@ where
     /// Parse a path, and find the directory entry it represents.
     /// Note that "/foo/../bar" will be treated literally, not resolved to "/bar" then looked up.
     pub fn resolve_path(&self, path: &str) -> Result<DirEntry, Error> {
+        let path = path.replace('\\', "/");
         let path = path.trim_end_matches('/');
+
         if path.is_empty() {
             // this is a bit of a lie, but it works..?
             return Ok(DirEntry {

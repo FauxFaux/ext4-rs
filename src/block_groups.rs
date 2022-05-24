@@ -33,6 +33,7 @@ impl BlockGroups {
         s_inodes_per_group: u32,
         block_size: u32,
         inode_size: u16,
+        long_structs: bool,
     ) -> Result<BlockGroups, Error>
     where
         R: io::Read + io::Seek,
@@ -64,53 +65,44 @@ impl BlockGroups {
             //            let bg_checksum =
             inner.read_u16::<LittleEndian>()?; /* crc16(sb_uuid+group+desc) */
 
-            //            let bg_block_bitmap_hi =
-            if s_desc_size < 4 {
-                None
+            let (bg_inode_table_hi, bg_free_inodes_count_hi) = if long_structs && s_desc_size > 32 {
+                //            let bg_block_bitmap_hi =
+                inner.read_u32::<LittleEndian>()?; /* Blocks bitmap block MSB */
+
+                //            let bg_inode_bitmap_hi =
+                inner.read_u32::<LittleEndian>()?; /* Inodes bitmap block MSB */
+
+                let bg_inode_table_hi = inner.read_u32::<LittleEndian>()?; /* Inodes table block MSB */
+
+                //            let bg_free_blocks_count_hi =
+                inner.read_u16::<LittleEndian>()?; /* Free blocks count MSB */
+
+                let bg_free_inodes_count_hi = inner.read_u16::<LittleEndian>()?; /* Free inodes count MSB */
+
+                (bg_inode_table_hi, bg_free_inodes_count_hi)
+
+                //          let bg_used_dirs_count_hi =
+                //              inner.read_u16::<LittleEndian>()?; /* Directories count MSB */
+                //          let bg_itable_unused_hi =
+                //              inner.read_u16::<LittleEndian>()?; /* Unused inodes count MSB */
+                //          let bg_exclude_bitmap_hi =
+                //              inner.read_u32::<LittleEndian>()?; /* Exclude bitmap block MSB */
+                //          let bg_block_bitmap_csum_hi =
+                //              inner.read_u16::<LittleEndian>()?; /* crc32c(s_uuid+grp_num+bbitmap) BE */
+                //          let bg_inode_bitmap_csum_hi =
+                //              inner.read_u16::<LittleEndian>()?; /* crc32c(s_uuid+grp_num+ibitmap) BE */
             } else {
-                Some(inner.read_u32::<LittleEndian>()?) /* Blocks bitmap block MSB */
-            };
-            //            let bg_inode_bitmap_hi =
-            if s_desc_size < 4 + 4 {
-                None
-            } else {
-                Some(inner.read_u32::<LittleEndian>()?) /* Inodes bitmap block MSB */
-            };
-            let bg_inode_table_hi = if s_desc_size < 4 + 4 + 4 {
-                None
-            } else {
-                Some(inner.read_u32::<LittleEndian>()?) /* Inodes table block MSB */
-            };
-            //            let bg_free_blocks_count_hi =
-            if s_desc_size < 4 + 4 + 4 + 2 {
-                None
-            } else {
-                Some(inner.read_u16::<LittleEndian>()?) /* Free blocks count MSB */
-            };
-            let bg_free_inodes_count_hi = if s_desc_size < 4 + 4 + 4 + 2 + 2 {
-                None
-            } else {
-                Some(inner.read_u16::<LittleEndian>()?) /* Free inodes count MSB */
+                (0, 0)
             };
 
-            //          let bg_used_dirs_count_hi =
-            //              inner.read_u16::<LittleEndian>()?; /* Directories count MSB */
-            //          let bg_itable_unused_hi =
-            //              inner.read_u16::<LittleEndian>()?; /* Unused inodes count MSB */
-            //          let bg_exclude_bitmap_hi =
-            //              inner.read_u32::<LittleEndian>()?; /* Exclude bitmap block MSB */
-            //          let bg_block_bitmap_csum_hi =
-            //              inner.read_u16::<LittleEndian>()?; /* crc32c(s_uuid+grp_num+bbitmap) BE */
-            //          let bg_inode_bitmap_csum_hi =
-            //              inner.read_u16::<LittleEndian>()?; /* crc32c(s_uuid+grp_num+ibitmap) BE */
             if s_desc_size > 16 + 32 {
                 inner.seek(io::SeekFrom::Current(i64::from(s_desc_size - 32 - 16)))?;
             }
 
             let inode_table_block =
-                u64::from(bg_inode_table_lo) | ((u64::from(bg_inode_table_hi.unwrap_or(0))) << 32);
-            let free_inodes_count = u32::from(bg_free_inodes_count_lo)
-                | ((u32::from(bg_free_inodes_count_hi.unwrap_or(0))) << 16);
+                u64::from(bg_inode_table_lo) | ((u64::from(bg_inode_table_hi)) << 32);
+            let free_inodes_count =
+                u32::from(bg_free_inodes_count_lo) | ((u32::from(bg_free_inodes_count_hi)) << 16);
 
             let unallocated = bg_flags & EXT4_BLOCK_GROUP_INODES_UNUSED != 0
                 || bg_flags & EXT4_BLOCK_GROUP_BLOCKS_UNUSED != 0;
