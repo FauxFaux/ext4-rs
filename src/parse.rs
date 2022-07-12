@@ -11,8 +11,8 @@ use anyhow::Context;
 use anyhow::Error;
 use bitflags::bitflags;
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
-use positioned_io::Cursor;
-use positioned_io::ReadAt;
+use positioned_io2::Cursor;
+use positioned_io2::ReadAt;
 
 use crate::not_found;
 use crate::parse_error;

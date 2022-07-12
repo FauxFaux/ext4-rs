@@ -3,7 +3,7 @@ use std::io;
 
 use anyhow::ensure;
 use anyhow::Error;
-use positioned_io::ReadAt;
+use positioned_io2::ReadAt;
 
 use crate::assumption_failed;
 use crate::read_le16;

@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::process::Stdio;
 
 use anyhow::Result;
-use positioned_io::ReadAt;
+use positioned_io2::ReadAt;
 use tempfile::NamedTempFile;
 use tempfile::TempDir;
 
@@ -34,7 +34,7 @@ fn all_types() -> Result<()> {
                 _ => panic!("unexpected partition table"),
             }
 
-            let part_reader = positioned_io::Slice::new(&mut img, part.first_byte, Some(part.len));
+            let part_reader = positioned_io2::Slice::new(&mut img, part.first_byte, Some(part.len));
             let superblock = ext4::SuperBlock::new(part_reader).unwrap();
             let root = superblock.root().unwrap();
             superblock

@@ -29,7 +29,7 @@ use anyhow::Context;
 use anyhow::Error;
 use bitflags::bitflags;
 use byteorder::{LittleEndian, ReadBytesExt};
-use positioned_io::ReadAt;
+use positioned_io2::ReadAt;
 
 mod block_groups;
 mod extents;
