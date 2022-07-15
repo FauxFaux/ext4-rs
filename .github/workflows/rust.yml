@@ -11,10 +11,15 @@ env:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust: [ "1.59.0", stable, nightly ]
 
     steps:
+      - uses: hecrj/setup-rust-action@v1
+        with:
+          rust-version: ${{ matrix.rust }}
     - uses: actions/checkout@v3
     - name: Build
       run: cargo build --verbose

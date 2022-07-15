@@ -39,7 +39,7 @@ I'm not especially interested in resource-constrained platforms: memory and IO a
 
 ## MSRV
 
-Rust 1.34 (`TryFrom`) is supported, and checked by Travis.
+Rust 1.59 (Debian Bookworm / `edition = "2021"`) is supported, and checked by CI.
 Updating this is a semver bump.
 
 

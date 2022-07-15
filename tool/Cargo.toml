@@ -5,8 +5,8 @@ authors = ["Chris West (Faux) <git@goeswhere.com>"]
 
 [dependencies]
 ext4 = { path = ".." }
-bootsector = "0.1"
+anyhow = "1"
+bootsector = "0.2"
 cast = "0.2"
 clap = "2"
-failure = "0.1"
 hexdump = "0.1"

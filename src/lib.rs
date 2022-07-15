@@ -29,7 +29,7 @@ use anyhow::Context;
 use anyhow::Error;
 use bitflags::bitflags;
 use byteorder::{LittleEndian, ReadBytesExt};
-use positioned_io::ReadAt;
+pub use positioned_io2::ReadAt;
 
 mod block_groups;
 mod extents;
@@ -274,7 +274,6 @@ where
     pub fn new(inner: R) -> Result<SuperBlock<R>, Error> {
         SuperBlock::new_with_options(inner, &Options::default())
     }
-
 
     /// Returns inner R, consuming self
     pub fn into_inner(self) -> R {

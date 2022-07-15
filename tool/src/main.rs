@@ -3,22 +3,21 @@ extern crate cast;
 extern crate clap;
 extern crate ext4;
 #[macro_use]
-extern crate failure;
+extern crate anyhow;
 extern crate hexdump;
 
+use std::convert::TryFrom;
 use std::fs;
-use std::io;
 use std::io::Read;
-use std::io::Seek;
 
-use clap::{App, Arg, SubCommand};
-use ext4::SuperBlock;
-use anyhow::Error;
 use anyhow::Context;
+use anyhow::Error;
+use clap::{App, Arg, SubCommand};
+use ext4::{ReadAt, SuperBlock};
 
-fn dump_ls<R>(mut fs: SuperBlock<R>) -> Result<(), Error>
+fn dump_ls<R>(fs: SuperBlock<R>) -> Result<(), Error>
 where
-    R: Read + Seek,
+    R: ReadAt,
 {
     let root = &fs.root()?;
     fs.walk(root, "", &mut |_, path, inode, enhanced| {
@@ -27,13 +26,14 @@ where
             inode.number, path, enhanced, inode.stat
         );
         Ok(true)
-    }).map(|_| ())?; // we don't care about the returned "true"
+    })
+    .map(|_| ())?; // we don't care about the returned "true"
     Ok(())
 }
 
-fn head_all<R>(mut fs: SuperBlock<R>, bytes: usize) -> Result<(), Error>
+fn head_all<R>(fs: SuperBlock<R>, bytes: usize) -> Result<(), Error>
 where
-    R: Read + Seek,
+    R: ReadAt,
 {
     let root = fs.root()?;
     fs.walk(&root, "", &mut |fs, path, inode, _| {
@@ -47,7 +47,11 @@ where
         }
 
         println!("==> {} <==", path);
-        let to_read = usize(std::cmp::min(inode.stat.size, u64(bytes)));
+        let to_read = usize::try_from(std::cmp::min(
+            inode.stat.size,
+            u64::try_from(bytes).unwrap(),
+        ))
+        .unwrap();
         let mut buf = vec![0u8; to_read];
 
         fs.open(inode)?.read_exact(&mut buf)?;
@@ -58,19 +62,22 @@ where
         };
 
         Ok(true)
-    }).map(|_| ())?; // we don't care about the returned "true"
+    })
+    .map(|_| ())?; // we don't care about the returned "true"
     Ok(())
 }
 
 fn on_fs(file: &str, work: Command) -> Result<(), Error> {
-    let mut reader = io::BufReader::new(fs::File::open(file)?);
+    let mut reader = fs::File::open(file)?;
     match bootsector::list_partitions(&mut reader, &bootsector::Options::default()) {
-        Ok(partitions) => for part in partitions {
-            work.exec(ext4::SuperBlock::new(bootsector::open_partition(
-                &mut reader,
-                &part,
-            )?)?)?;
-        },
+        Ok(partitions) => {
+            for part in partitions {
+                work.exec(ext4::SuperBlock::new(bootsector::open_partition(
+                    &mut reader,
+                    &part,
+                )?)?)?;
+            }
+        }
         Err(_) => work.exec(ext4::SuperBlock::new(reader)?)?,
     }
     Ok(())
@@ -89,7 +96,7 @@ enum Command {
 }
 
 impl Command {
-    fn exec<R: Read + Seek>(self, fs: SuperBlock<R>) -> Result<(), Error> {
+    fn exec<R: ReadAt>(self, fs: SuperBlock<R>) -> Result<(), Error> {
         match self {
             Command::DumpLs => dump_ls(fs),
             Command::HeadAll { bytes } => head_all(fs, bytes),
