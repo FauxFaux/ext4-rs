@@ -14,9 +14,6 @@ version = "0.9.0"
 
 edition = "2018"
 
-[badges.travis-ci]
-repository = "FauxFaux/ext4-rs"
-
 [dependencies]
 anyhow = "1"
 bitflags = "1"
