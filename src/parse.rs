@@ -233,11 +233,10 @@ where
     inner.read_u32::<LittleEndian>()?; /* When the filesystem was created */
     let mut s_jnl_blocks = [0; 17 * 4];
     inner.read_exact(&mut s_jnl_blocks)?; /* Backup of the journal inode */
-
-    let s_blocks_count_hi = if !long_structs {
-        None
-    } else {
+    let s_blocks_count_hi = if long_structs {
         Some(inner.read_u32::<LittleEndian>()?) /* Blocks count */
+    } else {
+        None
     };
     ////    let s_r_blocks_count_hi =
     //        if !long_structs { None } else {
@@ -304,16 +303,6 @@ where
         }
     };
 
-    if !long_structs {
-        ensure!(
-            0 == s_desc_size,
-            assumption_failed(format!(
-                "outside long mode, block group desc size must be zero, not {}",
-                s_desc_size
-            ))
-        );
-    }
-
     ensure!(
         1 == s_rev_level,
         unsupported_feature(format!("rev level {}", s_rev_level))
@@ -345,6 +334,7 @@ where
         s_inodes_per_group,
         block_size,
         s_inode_size,
+        long_structs,
     )?;
 
     let uuid_checksum = if has_checksums {
