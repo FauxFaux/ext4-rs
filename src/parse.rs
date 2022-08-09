@@ -167,7 +167,8 @@ where
         | IncompatibleFeature::EXTENTS
         | IncompatibleFeature::FLEX_BG
         | IncompatibleFeature::RECOVER
-        | IncompatibleFeature::SIXTY_FOUR_BIT;
+        | IncompatibleFeature::SIXTY_FOUR_BIT
+        | IncompatibleFeature::ENCRYPT;
 
     if incompatible_features.intersects(!supported_incompatible_features) {
         return Err(parse_error(format!(
