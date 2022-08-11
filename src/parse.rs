@@ -276,17 +276,18 @@ where
         );
     }
 
-    {
-        const S_STATE_UNMOUNTED_CLEANLY: u16 = 0b01;
-        const S_STATE_ERRORS_DETECTED: u16 = 0b10;
-
-        if s_state & S_STATE_UNMOUNTED_CLEANLY == 0 || s_state & S_STATE_ERRORS_DETECTED != 0 {
-            return Err(parse_error(format!(
-                "filesystem is not in a clean state: {:b}",
-                s_state
-            )));
-        }
-    }
+    // Do not check file system state
+    // {
+    //     const S_STATE_UNMOUNTED_CLEANLY: u16 = 0b01;
+    //     const S_STATE_ERRORS_DETECTED: u16 = 0b10;
+    //
+    //     if s_state & S_STATE_UNMOUNTED_CLEANLY == 0 || s_state & S_STATE_ERRORS_DETECTED != 0 {
+    //         return Err(parse_error(format!(
+    //             "filesystem is not in a clean state: {:b}",
+    //             s_state
+    //         )));
+    //     }
+    // }
 
     if 0 == s_inodes_per_group {
         return Err(parse_error("inodes per group cannot be zero".to_string()));
