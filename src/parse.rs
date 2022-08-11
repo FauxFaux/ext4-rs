@@ -626,6 +626,8 @@ fn read_xattrs(
                 4 => "trusted.",
                 6 => "security.",
                 7 => "system.",
+                8 => "system.richacl",
+                9 => assumption_failed("node is encrypted"), // EXT4_XATTR_INDEX_ENCRYPTION
                 _ => bail!(unsupported_feature(format!(
                     "unsupported name prefix encoding: {}",
                     e_name_prefix_magic
