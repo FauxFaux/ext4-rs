@@ -167,7 +167,8 @@ where
         | IncompatibleFeature::EXTENTS
         | IncompatibleFeature::FLEX_BG
         | IncompatibleFeature::RECOVER
-        | IncompatibleFeature::SIXTY_FOUR_BIT;
+        | IncompatibleFeature::SIXTY_FOUR_BIT
+        | IncompatibleFeature::ENCRYPT;
 
     if incompatible_features.intersects(!supported_incompatible_features) {
         return Err(parse_error(format!(
@@ -626,6 +627,8 @@ fn read_xattrs(
                 4 => "trusted.",
                 6 => "security.",
                 7 => "system.",
+                8 => "system.richacl",
+                9 => bail!(assumption_failed("node is encrypted")), // EXT4_XATTR_INDEX_ENCRYPTION
                 _ => bail!(unsupported_feature(format!(
                     "unsupported name prefix encoding: {}",
                     e_name_prefix_magic
