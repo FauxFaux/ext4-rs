@@ -22,6 +22,7 @@ use std::convert::TryFrom;
 use std::io;
 use std::io::Read;
 use std::io::Seek;
+use std::rc::Rc;
 
 use anyhow::anyhow;
 use anyhow::ensure;
@@ -185,6 +186,11 @@ pub struct Stat {
 
 const INODE_CORE_SIZE: usize = 4 * 15;
 
+pub trait Crypto {
+    fn decrypt_filename(&self, context: &[u8], encrypted_name: &[u8]) -> Result<Vec<u8>, Error>;
+    fn decrypt_page(&self, context: &[u8], page: &mut [u8], page_addr: u64) -> Result<(), Error>;
+}
+
 /// An actual disc metadata entry.
 pub struct Inode {
     pub stat: Stat,
@@ -197,6 +203,7 @@ pub struct Inode {
     /// I made up a new name.
     core: [u8; INODE_CORE_SIZE],
     block_size: u32,
+    crypto: Option<Rc<dyn Crypto>>,
 }
 
 /// The critical core of the filesystem.
@@ -307,7 +314,16 @@ where
             core: parsed.core,
             checksum_prefix: parsed.checksum_prefix,
             block_size: self.groups.block_size,
+            crypto: None,
         })
+    }
+
+    /// Load a filesystem entry by inode number.
+    pub fn load_crypted_inode(&self, inode: u32, crypto: Rc<dyn Crypto>) -> Result<Inode, Error> {
+        let mut inode = self.load_inode(inode)?;
+        inode.crypto = Some(crypto);
+
+        Ok(inode)
     }
 
     fn load_inode_bytes(&self, inode: u32) -> Result<Vec<u8>, Error> {
@@ -412,7 +428,7 @@ where
     }
 
     /// Read the data from an inode. You might not want to call this on thigns that aren't regular files.
-    pub fn open(&self, inode: &Inode) -> Result<TreeReader<&R>, Error> {
+    pub fn open<'a>(&'a self, inode: &'a Inode) -> Result<TreeReader<'a, &R>, Error> {
         inode.reader(&self.inner)
     }
 
@@ -443,6 +459,8 @@ impl Inode {
             self.stat.size,
             self.core,
             self.checksum_prefix,
+            self.get_encryption_context(),
+            self.crypto.clone(),
         )
         .with_context(|| anyhow!("opening inode <{}>", self.number))?)
     }
@@ -505,6 +523,10 @@ impl Inode {
         Ok(ret)
     }
 
+    fn get_encryption_context(&self) -> Option<&Vec<u8>> {
+        self.stat.xattrs.get("encryption.c")
+    }
+
     fn read_directory<R>(&self, inner: R) -> Result<Vec<DirEntry>, Error>
     where
         R: ReadAt,
@@ -514,7 +536,7 @@ impl Inode {
         let data = {
             // if the flags, minus irrelevant flags, isn't just EXTENTS...
             ensure!(
-                self.only_relevant_flag_is_extents(),
+                self.get_encryption_context().is_some() || self.only_relevant_flag_is_extents(),
                 unsupported_feature(format!(
                     "inode with unsupported flags: {0:x} {0:b}",
                     self.flags
@@ -545,6 +567,16 @@ impl Inode {
             let mut name = vec![0u8; usize::try_from(name_len)?];
             cursor.read_exact(&mut name)?;
             if 0 != child_inode {
+                let name = if let Some(context) = self.get_encryption_context() {
+                    let crypto = self
+                        .crypto
+                        .as_ref()
+                        .with_context(|| anyhow!("directory is encrypted"))?;
+                    crypto.decrypt_filename(context, &name)?
+                } else {
+                    name
+                };
+
                 let name = std::str::from_utf8(&name)
                     .map_err(|e| parse_error(format!("invalid utf-8 in file name: {}", e)))?;
 
