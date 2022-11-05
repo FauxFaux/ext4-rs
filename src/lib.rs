@@ -39,7 +39,7 @@ mod none_crypto;
 pub mod parse;
 
 use crate::extents::TreeReader;
-use crate::none_crypto::NoneCrypto;
+pub use crate::none_crypto::NoneCrypto;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ParseError {
