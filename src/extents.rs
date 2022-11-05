@@ -1,6 +1,5 @@
 use std::convert::TryFrom;
 use std::io;
-use std::rc::Rc;
 
 use anyhow::ensure;
 use anyhow::Error;
@@ -18,17 +17,17 @@ struct Extent {
     len: u16,
 }
 
-pub struct TreeReader<'a, R> {
+pub struct TreeReader<'a, R, C: Crypto> {
     inner: R,
     pos: u64,
     len: u64,
     block_size: u32,
     extents: Vec<Extent>,
     encryption_context: Option<&'a Vec<u8>>,
-    crypto: Option<Rc<dyn Crypto>>,
+    crypto: &'a C,
 }
 
-impl<'a, R> TreeReader<'a, R>
+impl<'a, R, C: Crypto> TreeReader<'a, R, C>
 where
     R: ReadAt,
 {
@@ -39,8 +38,8 @@ where
         core: [u8; crate::INODE_CORE_SIZE],
         checksum_prefix: Option<u32>,
         encryption_context: Option<&'a Vec<u8>>,
-        crypto: Option<Rc<dyn Crypto>>,
-    ) -> Result<TreeReader<R>, Error> {
+        crypto: &'a C,
+    ) -> Result<TreeReader<R, C>, Error> {
         let extents = load_extent_tree(
             &mut |block| crate::load_disc_bytes(&inner, block_size, block),
             core,
@@ -62,8 +61,8 @@ where
         size: u64,
         extents: Vec<Extent>,
         encryption_context: Option<&'a Vec<u8>>,
-        crypto: Option<Rc<dyn Crypto>>,
-    ) -> TreeReader<R> {
+        crypto: &'a C,
+    ) -> TreeReader<R, C> {
         TreeReader {
             pos: 0,
             len: size,
@@ -101,7 +100,7 @@ fn find_part(part: u32, extents: &[Extent]) -> FoundPart {
     FoundPart::Sparse(std::u32::MAX)
 }
 
-impl<'a, R> io::Read for TreeReader<'a, R>
+impl<'a, R, C: Crypto> io::Read for TreeReader<'a, R, C>
 where
     R: ReadAt,
 {
@@ -127,8 +126,7 @@ where
                 let read = self.inner.read_at(offset, &mut buf[0..to_read])?;
 
                 if let Some(context) = self.encryption_context {
-                    let crypto = self.crypto.as_ref().expect("directory is encrypted");
-                    crypto
+                    self.crypto
                         .decrypt_page(context, &mut buf[0..read], offset)
                         .expect("failed to decrypt page");
                 }
@@ -148,7 +146,7 @@ where
     }
 }
 
-impl<'a, R> io::Seek for TreeReader<'a, R>
+impl<'a, R, C: Crypto> io::Seek for TreeReader<'a, R, C>
 where
     R: ReadAt,
 {
@@ -299,11 +297,13 @@ mod tests {
 
     use crate::extents::Extent;
     use crate::extents::TreeReader;
+    use crate::NoneCrypto;
 
     #[test]
     fn simple_tree() {
         let data = (0..255u8).collect::<Vec<u8>>();
         let size = 4 + 4 * 2;
+        let crypto = NoneCrypto {};
         let mut reader = TreeReader::create(
             data,
             4,
@@ -321,7 +321,7 @@ mod tests {
                 },
             ],
             None,
-            None,
+            &crypto,
         );
 
         let mut res = Vec::new();
