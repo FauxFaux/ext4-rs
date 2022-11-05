@@ -275,17 +275,26 @@ pub struct Options {
     pub checksums: Checksums,
 }
 
-impl<R, C: Crypto> SuperBlock<R, C>
+impl<R> SuperBlock<R, NoneCrypto>
 where
     R: ReadAt,
 {
     /// Open a filesystem, and load its superblock.
-    pub fn new(inner: R) -> Result<SuperBlock<R, NoneCrypto>, Error> {
-        SuperBlock::new_with_options(inner, &Options::default(), NoneCrypto {})
+    pub fn new(inner: R) -> Result<Self, Error> {
+        Self::new_with_options(inner, &Options::default())
     }
 
+    pub fn new_with_options(inner: R, options: &Options) -> Result<Self, Error> {
+        Self::new_with_options_and_crypto(inner, options, NoneCrypto {})
+    }
+}
+
+impl<R, C: Crypto> SuperBlock<R, C>
+where
+    R: ReadAt,
+{
     pub fn new_with_crypto(inner: R, crypto: C) -> Result<SuperBlock<R, C>, Error> {
-        SuperBlock::new_with_options(inner, &Options::default(), crypto)
+        Self::new_with_options_and_crypto(inner, &Options::default(), crypto)
     }
 
     /// Returns inner R, consuming self
@@ -293,7 +302,7 @@ where
         self.inner
     }
 
-    pub fn new_with_options(
+    pub fn new_with_options_and_crypto(
         inner: R,
         options: &Options,
         crypto: C,
@@ -303,7 +312,7 @@ where
     }
 
     /// Load a filesystem entry by inode number.
-    pub fn load_inode<'a>(&'a self, inode: u32) -> Result<Inode<'a, C>, Error> {
+    pub fn load_inode(&self, inode: u32) -> Result<Inode<C>, Error> {
         let data = self
             .load_inode_bytes(inode)
             .with_context(|| anyhow!("failed to find inode <{}> on disc", inode))?;
