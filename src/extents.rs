@@ -39,7 +39,7 @@ where
         checksum_prefix: Option<u32>,
         encryption_context: Option<&'a Vec<u8>>,
         crypto: &'a C,
-    ) -> Result<TreeReader<R, C>, Error> {
+    ) -> Result<TreeReader<'a, R, C>, Error> {
         let extents = load_extent_tree(
             &mut |block| crate::load_disc_bytes(&inner, block_size, block),
             core,
@@ -62,7 +62,7 @@ where
         extents: Vec<Extent>,
         encryption_context: Option<&'a Vec<u8>>,
         crypto: &'a C,
-    ) -> TreeReader<R, C> {
+    ) -> TreeReader<'a, R, C> {
         TreeReader {
             pos: 0,
             len: size,
