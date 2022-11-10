@@ -301,6 +301,10 @@ where
         &mut self.crypto
     }
 
+    pub fn get_crypto(&self) -> &C {
+        &self.crypto
+    }
+
     pub fn set_crypto(&mut self, crypto: C) {
         self.crypto = crypto;
     }
