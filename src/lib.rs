@@ -301,6 +301,10 @@ where
         &mut self.crypto
     }
 
+    pub fn set_crypto(&mut self, crypto: C) {
+        self.crypto = crypto;
+    }
+
     /// Returns inner R, consuming self
     pub fn into_inner(self) -> R {
         self.inner
