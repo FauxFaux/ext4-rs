@@ -297,6 +297,10 @@ where
         Self::new_with_options_and_crypto(inner, &Options::default(), crypto)
     }
 
+    pub fn get_crypto_mut(&mut self) -> &mut C {
+        &mut self.crypto
+    }
+
     /// Returns inner R, consuming self
     pub fn into_inner(self) -> R {
         self.inner
