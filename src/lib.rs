@@ -22,7 +22,6 @@ use std::convert::TryFrom;
 use std::io;
 use std::io::Read;
 use std::io::Seek;
-use std::rc::Rc;
 
 use anyhow::anyhow;
 use anyhow::ensure;
@@ -35,10 +34,12 @@ use positioned_io::ReadAt;
 mod block_groups;
 mod extents;
 
+mod none_crypto;
 /// Raw object parsing API. Not versioned / supported.
 pub mod parse;
 
 use crate::extents::TreeReader;
+pub use crate::none_crypto::NoneCrypto;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ParseError {
@@ -192,7 +193,7 @@ pub trait Crypto {
 }
 
 /// An actual disc metadata entry.
-pub struct Inode {
+pub struct Inode<'a, C: Crypto> {
     pub stat: Stat,
     pub number: u32,
     flags: InodeFlags,
@@ -203,17 +204,18 @@ pub struct Inode {
     /// I made up a new name.
     core: [u8; INODE_CORE_SIZE],
     block_size: u32,
-    crypto: Option<Rc<dyn Crypto>>,
+    crypto: &'a C,
 }
 
 /// The critical core of the filesystem.
 #[derive(Debug)]
-pub struct SuperBlock<R> {
+pub struct SuperBlock<R, C: Crypto> {
     inner: R,
     load_xattrs: bool,
     /// All* checksums are computed after concatenation with the UUID, so we keep that.
     uuid_checksum: Option<u32>,
     groups: block_groups::BlockGroups,
+    crypto: C,
 }
 
 /// A raw filesystem time.
@@ -273,13 +275,38 @@ pub struct Options {
     pub checksums: Checksums,
 }
 
-impl<R> SuperBlock<R>
+impl<R> SuperBlock<R, NoneCrypto>
 where
     R: ReadAt,
 {
     /// Open a filesystem, and load its superblock.
-    pub fn new(inner: R) -> Result<SuperBlock<R>, Error> {
-        SuperBlock::new_with_options(inner, &Options::default())
+    pub fn new(inner: R) -> Result<Self, Error> {
+        Self::new_with_options(inner, &Options::default())
+    }
+
+    pub fn new_with_options(inner: R, options: &Options) -> Result<Self, Error> {
+        Self::new_with_options_and_crypto(inner, options, NoneCrypto {})
+    }
+}
+
+impl<R, C: Crypto> SuperBlock<R, C>
+where
+    R: ReadAt,
+{
+    pub fn new_with_crypto(inner: R, crypto: C) -> Result<SuperBlock<R, C>, Error> {
+        Self::new_with_options_and_crypto(inner, &Options::default(), crypto)
+    }
+
+    pub fn get_crypto_mut(&mut self) -> &mut C {
+        &mut self.crypto
+    }
+
+    pub fn get_crypto(&self) -> &C {
+        &self.crypto
+    }
+
+    pub fn set_crypto(&mut self, crypto: C) {
+        self.crypto = crypto;
     }
 
     /// Returns inner R, consuming self
@@ -287,13 +314,17 @@ where
         self.inner
     }
 
-    pub fn new_with_options(inner: R, options: &Options) -> Result<SuperBlock<R>, Error> {
-        Ok(parse::superblock(inner, options)
+    pub fn new_with_options_and_crypto(
+        inner: R,
+        options: &Options,
+        crypto: C,
+    ) -> Result<SuperBlock<R, C>, Error> {
+        Ok(parse::superblock(inner, options, crypto)
             .with_context(|| anyhow!("failed to parse superblock"))?)
     }
 
     /// Load a filesystem entry by inode number.
-    pub fn load_inode(&self, inode: u32) -> Result<Inode, Error> {
+    pub fn load_inode(&self, inode: u32) -> Result<Inode<C>, Error> {
         let data = self
             .load_inode_bytes(inode)
             .with_context(|| anyhow!("failed to find inode <{}> on disc", inode))?;
@@ -314,16 +345,8 @@ where
             core: parsed.core,
             checksum_prefix: parsed.checksum_prefix,
             block_size: self.groups.block_size,
-            crypto: None,
+            crypto: &self.crypto,
         })
-    }
-
-    /// Load a filesystem entry by inode number.
-    pub fn load_crypted_inode(&self, inode: u32, crypto: Rc<dyn Crypto>) -> Result<Inode, Error> {
-        let mut inode = self.load_inode(inode)?;
-        inode.crypto = Some(crypto);
-
-        Ok(inode)
     }
 
     fn load_inode_bytes(&self, inode: u32) -> Result<Vec<u8>, Error> {
@@ -338,7 +361,7 @@ where
     }
 
     /// Load the root node of the filesystem (typically `/`).
-    pub fn root(&self) -> Result<Inode, Error> {
+    pub fn root(&self) -> Result<Inode<C>, Error> {
         Ok(self
             .load_inode(2)
             .with_context(|| anyhow!("failed to load root inode"))?)
@@ -347,9 +370,9 @@ where
     /// Visit every entry in the filesystem in an arbitrary order.
     /// The closure should return `true` if it wants walking to continue.
     /// The method returns `true` if the closure always returned true.
-    pub fn walk<F>(&self, inode: &Inode, path: &str, visit: &mut F) -> Result<bool, Error>
+    pub fn walk<F>(&self, inode: &Inode<C>, path: &str, visit: &mut F) -> Result<bool, Error>
     where
-        F: FnMut(&Self, &str, &Inode, &Enhanced) -> Result<bool, Error>,
+        F: FnMut(&Self, &str, &Inode<C>, &Enhanced) -> Result<bool, Error>,
     {
         let enhanced = inode.enhance(&self.inner)?;
 
@@ -415,7 +438,7 @@ where
         self.dir_entry_named(&curr, last)
     }
 
-    fn dir_entry_named(&self, inode: &Inode, name: &str) -> Result<DirEntry, Error> {
+    fn dir_entry_named(&self, inode: &Inode<C>, name: &str) -> Result<DirEntry, Error> {
         if let Enhanced::Directory(entries) = self.enhance(inode)? {
             if let Some(en) = entries.into_iter().find(|entry| entry.name == name) {
                 Ok(en)
@@ -428,12 +451,12 @@ where
     }
 
     /// Read the data from an inode. You might not want to call this on thigns that aren't regular files.
-    pub fn open<'a>(&'a self, inode: &'a Inode) -> Result<TreeReader<'a, &R>, Error> {
+    pub fn open<'a>(&'a self, inode: &'a Inode<C>) -> Result<TreeReader<'a, &R, C>, Error> {
         inode.reader(&self.inner)
     }
 
     /// Load extra metadata about some types of entries.
-    pub fn enhance(&self, inode: &Inode) -> Result<Enhanced, Error> {
+    pub fn enhance(&self, inode: &Inode<C>) -> Result<Enhanced, Error> {
         inode.enhance(&self.inner)
     }
 }
@@ -448,8 +471,8 @@ where
     Ok(data)
 }
 
-impl Inode {
-    fn reader<R>(&self, inner: R) -> Result<TreeReader<R>, Error>
+impl<'a, C: Crypto> Inode<'a, C> {
+    fn reader<R>(&self, inner: R) -> Result<TreeReader<R, C>, Error>
     where
         R: ReadAt,
     {
@@ -460,7 +483,7 @@ impl Inode {
             self.core,
             self.checksum_prefix,
             self.get_encryption_context(),
-            self.crypto.clone(),
+            self.crypto,
         )
         .with_context(|| anyhow!("opening inode <{}>", self.number))?)
     }
@@ -568,11 +591,7 @@ impl Inode {
             cursor.read_exact(&mut name)?;
             if 0 != child_inode {
                 let name = if let Some(context) = self.get_encryption_context() {
-                    let crypto = self
-                        .crypto
-                        .as_ref()
-                        .with_context(|| anyhow!("directory is encrypted"))?;
-                    crypto.decrypt_filename(context, &name)?
+                    self.crypto.decrypt_filename(context, &name)?
                 } else {
                     name
                 };
