@@ -15,7 +15,7 @@ let passwd_reader = superblock.open(&inode).unwrap();
 Note: normal users can't read `/dev/sda1` by default, as it would allow them to read any
 file on the filesystem. You can grant yourself temporary access with
 `sudo setfacl -m u:${USER}:r /dev/sda1`, if you so fancy. This will be lost at reboot.
-*/
+ */
 
 use std::collections::HashMap;
 use std::convert::TryFrom;
@@ -476,16 +476,28 @@ impl<'a, C: Crypto> Inode<'a, C> {
     where
         R: ReadAt,
     {
-        Ok(TreeReader::new(
-            inner,
-            self.block_size,
-            self.stat.size,
-            self.core,
-            self.checksum_prefix,
-            self.get_encryption_context(),
-            self.crypto,
-        )
-        .with_context(|| anyhow!("opening inode <{}>", self.number))?)
+        match self.stat.extracted_type {
+            FileType::RegularFile => Ok(TreeReader::new(
+                inner,
+                self.block_size,
+                self.stat.size,
+                self.core,
+                self.checksum_prefix,
+                self.get_encryption_context(),
+                self.crypto,
+            )
+            .with_context(|| anyhow!("opening inode <{}>", self.number))?),
+            _ => Ok(TreeReader::new(
+                inner,
+                self.block_size,
+                self.stat.size,
+                self.core,
+                self.checksum_prefix,
+                None,
+                self.crypto,
+            )
+            .with_context(|| anyhow!("opening inode <{}>", self.number))?),
+        }
     }
 
     fn enhance<R>(&self, inner: R) -> Result<Enhanced, Error>
@@ -589,26 +601,37 @@ impl<'a, C: Crypto> Inode<'a, C> {
             let file_type = cursor.read_u8()?;
             let mut name = vec![0u8; usize::try_from(name_len)?];
             cursor.read_exact(&mut name)?;
+
             if 0 != child_inode {
-                let name = if let Some(context) = self.get_encryption_context() {
-                    self.crypto.decrypt_filename(context, &name)?
+                let mut name = if self.get_encryption_context().is_some()
+                    && name != [0x2Eu8]
+                    && name != [0x2Eu8, 0x2Eu8]
+                {
+                    self.crypto
+                        .decrypt_filename(self.get_encryption_context().unwrap(), &name)?
                 } else {
                     name
                 };
 
-                let name = std::str::from_utf8(&name)
-                    .map_err(|e| parse_error(format!("invalid utf-8 in file name: {}", e)))?;
+                while name.iter().last().unwrap() == 0 {
+                    name.pop();
+                }
 
-                dirs.push(DirEntry {
-                    inode: child_inode,
-                    name: name.to_string(),
-                    file_type: FileType::from_dir_hint(file_type).ok_or_else(|| {
-                        unsupported_feature(format!(
-                            "unexpected file type in directory: {}",
-                            file_type
-                        ))
-                    })?,
-                });
+                if let Ok(name) = std::str::from_utf8(&name) {
+
+                    dirs.push(DirEntry {
+                        inode: child_inode,
+                        name: name.to_string(),
+                        file_type: FileType::from_dir_hint(file_type).ok_or_else(|| {
+                            unsupported_feature(format!(
+                                "unexpected file type in directory: {}",
+                                file_type
+                            ))
+                        })?,
+                    });
+                } else {
+                    println!("skip name: {:X?}", &name);
+                }
             } else if 12 == rec_len && 0 == name_len && 0xDE == file_type {
                 // Magic entry representing the end of the list
 

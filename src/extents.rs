@@ -1,3 +1,4 @@
+use std::cmp::min;
 use std::convert::TryFrom;
 use std::io;
 
@@ -123,13 +124,37 @@ where
                 let to_read = std::cmp::min(remaining_bytes_in_extent, buf.len() as u64) as usize;
                 let to_read = std::cmp::min(to_read as u64, self.len - self.pos) as usize;
                 let offset = extent.start * block_size + bytes_through_extent;
-                let read = self.inner.read_at(offset, &mut buf[0..to_read])?;
 
-                if let Some(context) = self.encryption_context {
-                    self.crypto
-                        .decrypt_page(context, &mut buf[0..read], offset)
-                        .expect("failed to decrypt page");
-                }
+                let read = if let Some(context) = self.encryption_context {
+
+                    let mut read_offset = 0;
+                    while read_offset < to_read {
+                        let mut new_buf = vec![0u8; block_size as usize];
+                        let read = self
+                            .inner
+                            .read_at(offset + read_offset, &mut new_buf[0..block_size as usize])?;
+
+                        self.crypto
+                            .decrypt_page(
+                                context,
+                                &mut new_buf[0..block_size as usize],
+                                offset + read_offset,
+                            )
+                            .unwrap();
+
+                        let counter = min(to_read, read_offset + block_size);
+                        for i in read_offset..counter {
+                            buf[i] = new_buf[i - read_offset];
+                        }
+
+                        read_offset += block_size;
+                    }
+
+                    to_read
+                } else {
+                    let read = self.inner.read_at(offset, &mut buf[0..to_read])?;
+                    to_read
+                };
 
                 self.pos += u64::try_from(read).expect("infallible u64 conversion");
                 Ok(read)
