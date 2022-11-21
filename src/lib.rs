@@ -480,28 +480,21 @@ impl<'a, C: Crypto> Inode<'a, C> {
     where
         R: ReadAt,
     {
-        match self.stat.extracted_type {
-            FileType::RegularFile => Ok(TreeReader::new(
-                inner,
-                self.block_size,
-                self.stat.size,
-                self.core,
-                self.checksum_prefix,
-                self.get_encryption_context(),
-                self.crypto,
-            )
-            .with_context(|| anyhow!("opening inode <{}>", self.number))?),
-            _ => Ok(TreeReader::new(
-                inner,
-                self.block_size,
-                self.stat.size,
-                self.core,
-                self.checksum_prefix,
-                None,
-                self.crypto,
-            )
-            .with_context(|| anyhow!("opening inode <{}>", self.number))?),
-        }
+        let context = match self.stat.extracted_type {
+            FileType::RegularFile => self.get_encryption_context(),
+            _ => None,
+        };
+
+        Ok(TreeReader::new(
+            inner,
+            self.block_size,
+            self.stat.size,
+            self.core,
+            self.checksum_prefix,
+            context,
+            self.crypto,
+        )
+        .with_context(|| anyhow!("opening inode <{}>", self.number))?)
     }
 
     fn enhance<R>(&self, inner: R) -> Result<Enhanced, Error>
@@ -608,8 +601,7 @@ impl<'a, C: Crypto> Inode<'a, C> {
 
             if 0 != child_inode {
                 let mut name = if self.get_encryption_context().is_some()
-                    && name != [0x2Eu8]
-                    && name != [0x2Eu8, 0x2Eu8]
+                    && [b".".as_slice(), b"..".as_slice()].contains(&name.as_slice())
                 {
                     self.crypto
                         .decrypt_filename(self.get_encryption_context().unwrap(), &name)?
@@ -617,24 +609,23 @@ impl<'a, C: Crypto> Inode<'a, C> {
                     name
                 };
 
-                while name.iter().last().unwrap() == &0 {
-                    name.pop();
+                if let Some(new_size) = name.iter().rev().position(|current| *current != 0) {
+                    name.resize(new_size, 0);
                 }
 
-                if let Ok(name) = std::str::from_utf8(&name) {
-                    dirs.push(DirEntry {
-                        inode: child_inode,
-                        name: name.to_string(),
-                        file_type: FileType::from_dir_hint(file_type).ok_or_else(|| {
-                            unsupported_feature(format!(
-                                "unexpected file type in directory: {}",
-                                file_type
-                            ))
-                        })?,
-                    });
-                } else {
-                    println!("skip name: {:X?}", &name);
-                }
+                let name = std::str::from_utf8(&name)
+                    .map_err(|e| parse_error(format!("invalid utf-8 in file name: {}", e)))?;
+
+                dirs.push(DirEntry {
+                    inode: child_inode,
+                    name: name.to_string(),
+                    file_type: FileType::from_dir_hint(file_type).ok_or_else(|| {
+                        unsupported_feature(format!(
+                            "unexpected file type in directory: {}",
+                            file_type
+                        ))
+                    })?,
+                });
             } else if 12 == rec_len && 0 == name_len && 0xDE == file_type {
                 // Magic entry representing the end of the list
 
