@@ -130,24 +130,25 @@ where
                     let mut read_offset = 0;
                     while read_offset < to_read {
                         let mut new_buf = vec![0u8; block_size as usize];
-                        let read = self
-                            .inner
-                            .read_at(offset + read_offset, &mut new_buf[0..block_size as usize])?;
+                        let read = self.inner.read_at(
+                            offset + read_offset as u64,
+                            &mut new_buf[0..block_size as usize],
+                        )?;
 
                         self.crypto
                             .decrypt_page(
                                 context,
                                 &mut new_buf[0..block_size as usize],
-                                offset + read_offset,
+                                offset + read_offset as u64,
                             )
                             .unwrap();
 
-                        let counter = min(to_read, read_offset + block_size);
+                        let counter = min(to_read, read_offset + block_size as usize);
                         for i in read_offset..counter {
                             buf[i] = new_buf[i - read_offset];
                         }
 
-                        read_offset += block_size;
+                        read_offset += block_size as usize;
                     }
 
                     to_read

@@ -314,6 +314,10 @@ where
         self.inner
     }
 
+    pub fn ref_inner(&self) -> &R {
+        &self.inner
+    }
+
     pub fn new_with_options_and_crypto(
         inner: R,
         options: &Options,
@@ -613,12 +617,11 @@ impl<'a, C: Crypto> Inode<'a, C> {
                     name
                 };
 
-                while name.iter().last().unwrap() == 0 {
+                while name.iter().last().unwrap() == &0 {
                     name.pop();
                 }
 
                 if let Ok(name) = std::str::from_utf8(&name) {
-
                     dirs.push(DirEntry {
                         inode: child_inode,
                         name: name.to_string(),
