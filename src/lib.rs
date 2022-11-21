@@ -601,7 +601,7 @@ impl<'a, C: Crypto> Inode<'a, C> {
 
             if 0 != child_inode {
                 let mut name = if self.get_encryption_context().is_some()
-                    && [b".".as_slice(), b"..".as_slice()].contains(&name.as_slice())
+                    && ![b".".as_slice(), b"..".as_slice()].contains(&name.as_slice())
                 {
                     self.crypto
                         .decrypt_filename(self.get_encryption_context().unwrap(), &name)?
@@ -610,7 +610,7 @@ impl<'a, C: Crypto> Inode<'a, C> {
                 };
 
                 if let Some(new_size) = name.iter().rev().position(|current| *current != 0) {
-                    name.resize(new_size, 0);
+                    name.resize(new_size + 1, 0);
                 }
 
                 let name = std::str::from_utf8(&name)

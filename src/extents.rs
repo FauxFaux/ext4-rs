@@ -147,7 +147,7 @@ where
 
                         let expected_size = min(to_read - read_offset, chunk_size);
                         buf[read_offset..read_offset + expected_size]
-                            .copy_from_slice(&block_buffer);
+                            .copy_from_slice(block_buffer[..expected_size]);
 
                         read_offset += chunk_size;
                     }
