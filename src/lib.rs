@@ -609,12 +609,10 @@ impl<'a, C: Crypto> Inode<'a, C> {
                     name
                 };
 
-                if let Some(new_size) = name.iter().rev().position(|current| *current != 0) {
-                    name.resize(new_size + 1, 0);
-                }
-
+                let forbidden_chars: &[_] = &['\0'];
                 let name = std::str::from_utf8(&name)
-                    .map_err(|e| parse_error(format!("invalid utf-8 in file name: {}", e)))?;
+                    .map_err(|e| parse_error(format!("invalid utf-8 in file name: {}", e)))?
+                    .trim_end_matches(forbidden_chars);
 
                 dirs.push(DirEntry {
                     inode: child_inode,
