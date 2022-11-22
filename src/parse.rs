@@ -14,12 +14,12 @@ use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
 use positioned_io::Cursor;
 use positioned_io::ReadAt;
 
-use crate::parse_error;
 use crate::read_le16;
 use crate::read_le32;
 use crate::unsupported_feature;
 use crate::Time;
 use crate::{assumption_failed, read_lei32};
+use crate::{map_lib_error_to_io, parse_error};
 use crate::{not_found, Crypto};
 
 const EXT4_SUPER_MAGIC: u16 = 0xEF53;
@@ -466,14 +466,16 @@ where
         let mut bytes = [0u8; 8];
         LittleEndian::write_u32(&mut bytes[0..4], number);
         LittleEndian::write_u32(&mut bytes[4..8], i_generation);
-        checksum_prefix = Some(ext4_style_crc32c_le(uuid_checksum, &bytes));
+
+        let checksum_prefix_crc32c_le = ext4_style_crc32c_le(uuid_checksum, &bytes);
 
         if i_checksum_hi.is_some() {
             data[0x82] = 0;
             data[0x83] = 0;
         }
 
-        let computed = ext4_style_crc32c_le(checksum_prefix.unwrap(), &data);
+        let computed = ext4_style_crc32c_le(checksum_prefix_crc32c_le, &data);
+        checksum_prefix = Some(checksum_prefix_crc32c_le);
 
         if let Some(high) = i_checksum_hi {
             let expected = u32::from(l_i_checksum_lo) | (u32::from(high) << 16);
@@ -485,7 +487,7 @@ where
                 ))
             );
         } else {
-            let short_computed = u16::try_from(computed & 0xFFFF).unwrap();
+            let short_computed = u16::try_from(computed & 0xFFFF).map_err(map_lib_error_to_io)?;
             ensure!(
                 l_i_checksum_lo == short_computed,
                 assumption_failed(format!(

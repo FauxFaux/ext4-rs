@@ -1,3 +1,4 @@
+use std::cmp::min;
 use std::convert::TryFrom;
 use std::io;
 
@@ -5,9 +6,9 @@ use anyhow::ensure;
 use anyhow::Error;
 use positioned_io::ReadAt;
 
-use crate::read_le16;
 use crate::read_le32;
 use crate::{assumption_failed, Crypto};
+use crate::{map_lib_error_to_io, read_le16};
 
 #[derive(Debug)]
 struct Extent {
@@ -111,7 +112,7 @@ where
 
         let block_size = u64::from(self.block_size);
 
-        let wanted_block = u32::try_from(self.pos / block_size).unwrap();
+        let wanted_block = u32::try_from(self.pos / block_size).map_err(map_lib_error_to_io)?;
         let read_of_this_block = self.pos % block_size;
 
         match find_part(wanted_block, &self.extents) {
@@ -120,26 +121,51 @@ where
                     (block_size * u64::from(wanted_block - extent.part)) + read_of_this_block;
                 let remaining_bytes_in_extent =
                     (u64::from(extent.len) * block_size) - bytes_through_extent;
-                let to_read = std::cmp::min(remaining_bytes_in_extent, buf.len() as u64) as usize;
-                let to_read = std::cmp::min(to_read as u64, self.len - self.pos) as usize;
+                let to_read = min(remaining_bytes_in_extent, buf.len() as u64) as usize;
+                let to_read = min(to_read as u64, self.len - self.pos) as usize;
                 let offset = extent.start * block_size + bytes_through_extent;
-                let read = self.inner.read_at(offset, &mut buf[0..to_read])?;
 
-                if let Some(context) = self.encryption_context {
-                    self.crypto
-                        .decrypt_page(context, &mut buf[0..read], offset)
-                        .expect("failed to decrypt page");
-                }
+                let read = if let Some(context) = self.encryption_context {
+                    let mut read_offset = 0;
+                    let mut read = 0;
+                    let chunk_size = block_size as usize;
 
-                self.pos += u64::try_from(read).expect("infallible u64 conversion");
+                    while read_offset < to_read {
+                        let mut block_buffer = vec![0u8; chunk_size];
+                        read += self.inner.read_at(
+                            offset + read_offset as u64,
+                            &mut block_buffer[0..chunk_size],
+                        )?;
+
+                        self.crypto
+                            .decrypt_page(
+                                context,
+                                &mut block_buffer[0..chunk_size],
+                                offset + read_offset as u64,
+                            )
+                            .map_err(map_lib_error_to_io)?;
+
+                        let expected_size = min(to_read - read_offset, chunk_size);
+                        buf[read_offset..read_offset + expected_size]
+                            .copy_from_slice(&block_buffer[..expected_size]);
+
+                        read_offset += chunk_size;
+                    }
+
+                    read
+                } else {
+                    self.inner.read_at(offset, &mut buf[0..to_read])?
+                };
+
+                self.pos += u64::try_from(read).map_err(map_lib_error_to_io)?;
                 Ok(read)
             }
             FoundPart::Sparse(max) => {
                 let max_bytes = u64::from(max) * block_size;
-                let read = std::cmp::min(max_bytes, buf.len() as u64) as usize;
-                let read = std::cmp::min(read as u64, self.len - self.pos) as usize;
+                let read = min(max_bytes, buf.len() as u64) as usize;
+                let read = min(read as u64, self.len - self.pos) as usize;
                 zero(&mut buf[0..read]);
-                self.pos += u64::try_from(read).expect("infallible u64 conversion");
+                self.pos += u64::try_from(read).map_err(map_lib_error_to_io)?;
                 Ok(read)
             }
         }
@@ -156,7 +182,7 @@ where
             io::SeekFrom::Current(diff) => self.pos = (self.pos as i64 + diff) as u64,
             io::SeekFrom::End(set) => {
                 assert!(set >= 0);
-                self.pos = self.len - u64::try_from(set).unwrap()
+                self.pos = self.len - u64::try_from(set).map_err(map_lib_error_to_io)?;
             }
         }
 
@@ -171,7 +197,7 @@ fn add_found_extents<F>(
     data: &[u8],
     expected_depth: u16,
     extents: &mut Vec<Extent>,
-    checksum_prefix: Option<u32>,
+    checksum_prefix_op: Option<u32>,
     first_level: bool,
 ) -> Result<(), Error>
 where
@@ -192,11 +218,10 @@ where
         assumption_failed(format!("depth incorrect: {} != {}", expected_depth, depth))
     );
 
-    if !first_level && checksum_prefix.is_some() {
+    if let (Some(checksum_prefix), false) = (checksum_prefix_op, first_level) {
         let end_of_entries = data.len() - 4;
         let on_disc = read_le32(&data[end_of_entries..(end_of_entries + 4)]);
-        let computed =
-            crate::parse::ext4_style_crc32c_le(checksum_prefix.unwrap(), &data[..end_of_entries]);
+        let computed = crate::parse::ext4_style_crc32c_le(checksum_prefix, &data[..end_of_entries]);
 
         ensure!(
             computed == on_disc,
@@ -240,7 +265,7 @@ where
             &data,
             depth - 1,
             extents,
-            checksum_prefix,
+            checksum_prefix_op,
             false,
         )?;
     }

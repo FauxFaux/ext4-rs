@@ -15,13 +15,13 @@ let passwd_reader = superblock.open(&inode).unwrap();
 Note: normal users can't read `/dev/sda1` by default, as it would allow them to read any
 file on the filesystem. You can grant yourself temporary access with
 `sudo setfacl -m u:${USER}:r /dev/sda1`, if you so fancy. This will be lost at reboot.
-*/
+ */
 
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::io;
-use std::io::Read;
 use std::io::Seek;
+use std::io::{ErrorKind, Read};
 
 use anyhow::anyhow;
 use anyhow::ensure;
@@ -55,6 +55,13 @@ pub enum ParseError {
     /// The request is for something which we are sure is not there.
     #[error("filesystem uses an unsupported feature: {reason:?}")]
     NotFound { reason: String },
+}
+
+pub fn map_lib_error_to_io<E: ToString>(error: E) -> io::Error {
+    io::Error::new(
+        ErrorKind::Other,
+        format!("Ext4 error: {}", error.to_string()),
+    )
 }
 
 fn assumption_failed<S: ToString>(reason: S) -> ParseError {
@@ -314,6 +321,10 @@ where
         self.inner
     }
 
+    pub fn ref_inner(&self) -> &R {
+        &self.inner
+    }
+
     pub fn new_with_options_and_crypto(
         inner: R,
         options: &Options,
@@ -425,7 +436,9 @@ where
         let mut curr = self.root()?;
 
         let mut parts = path.split('/').collect::<Vec<&str>>();
-        let last = parts.pop().unwrap();
+        let last = parts
+            .pop()
+            .with_context(|| parse_error(format!("path separate failed")))?;
         for part in parts {
             if part.is_empty() {
                 continue;
@@ -476,13 +489,19 @@ impl<'a, C: Crypto> Inode<'a, C> {
     where
         R: ReadAt,
     {
+        let context = if matches!(self.stat.extracted_type, FileType::RegularFile) {
+            self.get_encryption_context()
+        } else {
+            None
+        };
+
         Ok(TreeReader::new(
             inner,
             self.block_size,
             self.stat.size,
             self.core,
             self.checksum_prefix,
-            self.get_encryption_context(),
+            context,
             self.crypto,
         )
         .with_context(|| anyhow!("opening inode <{}>", self.number))?)
@@ -589,15 +608,21 @@ impl<'a, C: Crypto> Inode<'a, C> {
             let file_type = cursor.read_u8()?;
             let mut name = vec![0u8; usize::try_from(name_len)?];
             cursor.read_exact(&mut name)?;
+
             if 0 != child_inode {
-                let name = if let Some(context) = self.get_encryption_context() {
+                let name = if let (Some(context), false) = (
+                    self.get_encryption_context(),
+                    [b".".as_slice(), b"..".as_slice()].contains(&name.as_slice()),
+                ) {
                     self.crypto.decrypt_filename(context, &name)?
                 } else {
                     name
                 };
 
+                let forbidden_chars: &[_] = &['\0'];
                 let name = std::str::from_utf8(&name)
-                    .map_err(|e| parse_error(format!("invalid utf-8 in file name: {}", e)))?;
+                    .map_err(|e| parse_error(format!("invalid utf-8 in file name: {}", e)))?
+                    .trim_end_matches(forbidden_chars);
 
                 dirs.push(DirEntry {
                     inode: child_inode,
