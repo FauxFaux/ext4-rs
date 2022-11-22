@@ -20,8 +20,8 @@ file on the filesystem. You can grant yourself temporary access with
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::io;
-use std::io::Read;
 use std::io::Seek;
+use std::io::{ErrorKind, Read};
 
 use anyhow::anyhow;
 use anyhow::ensure;
@@ -55,6 +55,13 @@ pub enum ParseError {
     /// The request is for something which we are sure is not there.
     #[error("filesystem uses an unsupported feature: {reason:?}")]
     NotFound { reason: String },
+}
+
+pub fn map_lib_error_to_io<E: ToString>(error: E) -> io::Error {
+    io::Error::new(
+        ErrorKind::Other,
+        format!("Ext4 error: {}", error.to_string()),
+    )
 }
 
 fn assumption_failed<S: ToString>(reason: S) -> ParseError {
@@ -429,7 +436,9 @@ where
         let mut curr = self.root()?;
 
         let mut parts = path.split('/').collect::<Vec<&str>>();
-        let last = parts.pop().unwrap();
+        let last = parts
+            .pop()
+            .with_context(|| parse_error(format!("path separate failed")))?;
         for part in parts {
             if part.is_empty() {
                 continue;
@@ -601,11 +610,11 @@ impl<'a, C: Crypto> Inode<'a, C> {
             cursor.read_exact(&mut name)?;
 
             if 0 != child_inode {
-                let mut name = if self.get_encryption_context().is_some()
-                    && ![b".".as_slice(), b"..".as_slice()].contains(&name.as_slice())
-                {
-                    self.crypto
-                        .decrypt_filename(self.get_encryption_context().unwrap(), &name)?
+                let name = if let (Some(context), false) = (
+                    self.get_encryption_context(),
+                    [b".".as_slice(), b"..".as_slice()].contains(&name.as_slice()),
+                ) {
+                    self.crypto.decrypt_filename(context, &name)?
                 } else {
                     name
                 };
