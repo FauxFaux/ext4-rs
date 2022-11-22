@@ -480,9 +480,10 @@ impl<'a, C: Crypto> Inode<'a, C> {
     where
         R: ReadAt,
     {
-        let context = match self.stat.extracted_type {
-            FileType::RegularFile => self.get_encryption_context(),
-            _ => None,
+        let context = if matches!(self.stat.extracted_type, FileType::RegularFile) {
+            self.get_encryption_context()
+        } else {
+            None
         };
 
         Ok(TreeReader::new(
