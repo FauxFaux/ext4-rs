@@ -152,7 +152,7 @@ where
                         read_offset += chunk_size;
                     }
 
-                    read
+                    to_read
                 } else {
                     self.inner.read_at(offset, &mut buf[0..to_read])?
                 };
