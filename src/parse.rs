@@ -606,9 +606,8 @@ fn read_xattrs(
         let e_name_len = reading[0x00];
         let e_name_prefix_magic = reading[0x01];
         let e_value_offset = read_le16(&reading[0x02..0x04]);
-        let e_block = read_le32(&reading[0x04..0x08]);
 
-        if 0 == e_name_len && 0 == e_name_prefix_magic && 0 == e_value_offset && 0 == e_block {
+        if 0 == e_name_len && 0 == e_name_prefix_magic && 0 == e_value_offset {
             break;
         }
 
