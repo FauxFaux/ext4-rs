@@ -6,9 +6,9 @@ use anyhow::ensure;
 use anyhow::Error;
 use positioned_io::ReadAt;
 
-use crate::read_le32;
-use crate::{assumption_failed, Crypto};
+use crate::{assumption_failed, Crypto, InnerReader};
 use crate::{map_lib_error_to_io, read_le16};
+use crate::{read_le32, MetadataCrypto};
 
 #[derive(Debug)]
 struct Extent {
@@ -18,8 +18,8 @@ struct Extent {
     len: u16,
 }
 
-pub struct TreeReader<'a, R, C: Crypto> {
-    inner: R,
+pub struct TreeReader<'a, R: ReadAt, C: Crypto, M: MetadataCrypto> {
+    inner: &'a InnerReader<R, M>,
     pos: u64,
     len: u64,
     block_size: u32,
@@ -28,21 +28,18 @@ pub struct TreeReader<'a, R, C: Crypto> {
     crypto: &'a C,
 }
 
-impl<'a, R, C: Crypto> TreeReader<'a, R, C>
-where
-    R: ReadAt,
-{
+impl<'a, R: ReadAt, C: Crypto, M: MetadataCrypto> TreeReader<'a, R, C, M> {
     pub fn new(
-        inner: R,
+        inner: &'a InnerReader<R, M>,
         block_size: u32,
         size: u64,
         core: [u8; crate::INODE_CORE_SIZE],
         checksum_prefix: Option<u32>,
         encryption_context: Option<&'a Vec<u8>>,
         crypto: &'a C,
-    ) -> Result<TreeReader<'a, R, C>, Error> {
+    ) -> Result<TreeReader<'a, R, C, M>, Error> {
         let extents = load_extent_tree(
-            &mut |block| crate::load_disc_bytes(&inner, block_size, block),
+            &mut |block| crate::load_disc_bytes(inner, block_size, block),
             core,
             checksum_prefix,
         )?;
@@ -57,13 +54,13 @@ where
     }
 
     fn create(
-        inner: R,
+        inner: &'a InnerReader<R, M>,
         block_size: u32,
         size: u64,
         extents: Vec<Extent>,
         encryption_context: Option<&'a Vec<u8>>,
         crypto: &'a C,
-    ) -> TreeReader<'a, R, C> {
+    ) -> TreeReader<'a, R, C, M> {
         TreeReader {
             pos: 0,
             len: size,
@@ -75,8 +72,8 @@ where
         }
     }
 
-    pub fn into_inner(self) -> R {
-        self.inner
+    pub fn ref_inner(self) -> &'a R {
+        &self.inner.inner
     }
 }
 
@@ -101,10 +98,11 @@ fn find_part(part: u32, extents: &[Extent]) -> FoundPart {
     FoundPart::Sparse(std::u32::MAX)
 }
 
-impl<'a, R, C: Crypto> io::Read for TreeReader<'a, R, C>
-where
-    R: ReadAt,
-{
+impl<'a, R: ReadAt, C: Crypto, M: MetadataCrypto> TreeReader<'a, R, C, M> {
+    // fn decrypt_page(&mut self)
+}
+
+impl<'a, R: ReadAt, C: Crypto, M: MetadataCrypto> io::Read for TreeReader<'a, R, C, M> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         if buf.is_empty() {
             return Ok(0);
@@ -127,12 +125,11 @@ where
 
                 let read = if let Some(context) = self.encryption_context {
                     let mut read_offset = 0;
-                    let mut read = 0;
                     let chunk_size = block_size as usize;
 
                     while read_offset < to_read {
                         let mut block_buffer = vec![0u8; chunk_size];
-                        read += self.inner.read_at(
+                        self.inner.read_at_without_decrypt(
                             offset + read_offset as u64,
                             &mut block_buffer[0..chunk_size],
                         )?;
@@ -172,10 +169,7 @@ where
     }
 }
 
-impl<'a, R, C: Crypto> io::Seek for TreeReader<'a, R, C>
-where
-    R: ReadAt,
-{
+impl<'a, R: ReadAt, C: Crypto, M: MetadataCrypto> io::Seek for TreeReader<'a, R, C, M> {
     fn seek(&mut self, pos: io::SeekFrom) -> io::Result<u64> {
         match pos {
             io::SeekFrom::Start(set) => self.pos = set,
@@ -322,15 +316,19 @@ mod tests {
 
     use crate::extents::Extent;
     use crate::extents::TreeReader;
-    use crate::NoneCrypto;
+    use crate::{InnerReader, NoneCrypto};
 
     #[test]
     fn simple_tree() {
-        let data = (0..255u8).collect::<Vec<u8>>();
         let size = 4 + 4 * 2;
         let crypto = NoneCrypto {};
+        let metadata_crypto = NoneCrypto {};
+        let data = InnerReader {
+            inner: (0..255u8).collect::<Vec<u8>>(),
+            metadata_crypto,
+        };
         let mut reader = TreeReader::create(
-            data,
+            &data,
             4,
             u64::try_from(size).expect("infallible u64 conversion"),
             vec![

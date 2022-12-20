@@ -14,13 +14,13 @@ use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
 use positioned_io::Cursor;
 use positioned_io::ReadAt;
 
-use crate::read_le16;
-use crate::read_le32;
 use crate::unsupported_feature;
 use crate::Time;
 use crate::{assumption_failed, read_lei32};
 use crate::{map_lib_error_to_io, parse_error};
 use crate::{not_found, Crypto};
+use crate::{read_le16, MetadataCrypto};
+use crate::{read_le32, InnerReader};
 
 const EXT4_SUPER_MAGIC: u16 = 0xEF53;
 const INODE_BASE_LEN: usize = 128;
@@ -76,14 +76,12 @@ bitflags! {
     }
 }
 
-pub fn superblock<R, C: Crypto>(
+pub fn superblock<R: ReadAt, C: Crypto, M: MetadataCrypto>(
     mut reader: R,
     options: &crate::Options,
     crypto: C,
-) -> Result<crate::SuperBlock<R, C>, Error>
-where
-    R: ReadAt,
-{
+    metadata_crypto: M,
+) -> Result<crate::SuperBlock<R, C, M>, Error> {
     let mut entire_superblock = [0u8; 1024];
     reader.read_exact_at(1024, &mut entire_superblock)?;
 
@@ -352,7 +350,7 @@ where
     };
 
     Ok(crate::SuperBlock {
-        inner: reader,
+        inner: InnerReader::new(reader, metadata_crypto),
         load_xattrs,
         uuid_checksum,
         groups,

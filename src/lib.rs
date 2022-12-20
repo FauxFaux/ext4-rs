@@ -34,12 +34,14 @@ use positioned_io::ReadAt;
 mod block_groups;
 mod extents;
 
+mod inner_reader;
 mod none_crypto;
 /// Raw object parsing API. Not versioned / supported.
 pub mod parse;
 
 use crate::extents::TreeReader;
 pub use crate::none_crypto::NoneCrypto;
+pub use inner_reader::{InnerReader, MetadataCrypto};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ParseError {
@@ -216,8 +218,8 @@ pub struct Inode<'a, C: Crypto> {
 
 /// The critical core of the filesystem.
 #[derive(Debug)]
-pub struct SuperBlock<R, C: Crypto> {
-    inner: R,
+pub struct SuperBlock<R: ReadAt, C: Crypto, M: MetadataCrypto> {
+    inner: InnerReader<R, M>,
     load_xattrs: bool,
     /// All* checksums are computed after concatenation with the UUID, so we keep that.
     uuid_checksum: Option<u32>,
@@ -282,26 +284,24 @@ pub struct Options {
     pub checksums: Checksums,
 }
 
-impl<R> SuperBlock<R, NoneCrypto>
-where
-    R: ReadAt,
-{
+impl<R: ReadAt> SuperBlock<R, NoneCrypto, NoneCrypto> {
     /// Open a filesystem, and load its superblock.
     pub fn new(inner: R) -> Result<Self, Error> {
         Self::new_with_options(inner, &Options::default())
     }
 
     pub fn new_with_options(inner: R, options: &Options) -> Result<Self, Error> {
-        Self::new_with_options_and_crypto(inner, options, NoneCrypto {})
+        Self::new_with_options_and_crypto(inner, options, NoneCrypto {}, NoneCrypto {})
     }
 }
 
-impl<R, C: Crypto> SuperBlock<R, C>
-where
-    R: ReadAt,
-{
-    pub fn new_with_crypto(inner: R, crypto: C) -> Result<SuperBlock<R, C>, Error> {
-        Self::new_with_options_and_crypto(inner, &Options::default(), crypto)
+impl<R: ReadAt, C: Crypto, M: MetadataCrypto> SuperBlock<R, C, M> {
+    pub fn new_with_crypto(
+        inner: R,
+        crypto: C,
+        metadata_crypto: M,
+    ) -> Result<SuperBlock<R, C, M>, Error> {
+        Self::new_with_options_and_crypto(inner, &Options::default(), crypto, metadata_crypto)
     }
 
     pub fn get_crypto_mut(&mut self) -> &mut C {
@@ -318,19 +318,20 @@ where
 
     /// Returns inner R, consuming self
     pub fn into_inner(self) -> R {
-        self.inner
+        self.inner.inner
     }
 
     pub fn ref_inner(&self) -> &R {
-        &self.inner
+        &self.inner.inner
     }
 
     pub fn new_with_options_and_crypto(
         inner: R,
         options: &Options,
         crypto: C,
-    ) -> Result<SuperBlock<R, C>, Error> {
-        Ok(parse::superblock(inner, options, crypto)
+        metadata_crypto: M,
+    ) -> Result<SuperBlock<R, C, M>, Error> {
+        Ok(parse::superblock(inner, options, crypto, metadata_crypto)
             .with_context(|| anyhow!("failed to parse superblock"))?)
     }
 
@@ -464,7 +465,7 @@ where
     }
 
     /// Read the data from an inode. You might not want to call this on thigns that aren't regular files.
-    pub fn open<'a>(&'a self, inode: &'a Inode<C>) -> Result<TreeReader<'a, &R, C>, Error> {
+    pub fn open<'a>(&'a self, inode: &'a Inode<C>) -> Result<TreeReader<'a, R, C, M>, Error> {
         inode.reader(&self.inner)
     }
 
@@ -474,10 +475,11 @@ where
     }
 }
 
-fn load_disc_bytes<R>(inner: R, block_size: u32, block: u64) -> Result<Vec<u8>, Error>
-where
-    R: ReadAt,
-{
+fn load_disc_bytes<R: ReadAt, M: MetadataCrypto>(
+    inner: &InnerReader<R, M>,
+    block_size: u32,
+    block: u64,
+) -> Result<Vec<u8>, Error> {
     let offset = block * u64::from(block_size);
     let mut data = vec![0u8; usize::try_from(block_size)?];
     inner.read_exact_at(offset, &mut data)?;
@@ -485,10 +487,10 @@ where
 }
 
 impl<'a, C: Crypto> Inode<'a, C> {
-    fn reader<R>(&self, inner: R) -> Result<TreeReader<R, C>, Error>
-    where
-        R: ReadAt,
-    {
+    fn reader<R: ReadAt, M: MetadataCrypto>(
+        &self,
+        inner: &'a InnerReader<R, M>,
+    ) -> Result<TreeReader<R, C, M>, Error> {
         let context = if matches!(self.stat.extracted_type, FileType::RegularFile) {
             self.get_encryption_context()
         } else {
@@ -507,10 +509,10 @@ impl<'a, C: Crypto> Inode<'a, C> {
         .with_context(|| anyhow!("opening inode <{}>", self.number))?)
     }
 
-    fn enhance<R>(&self, inner: R) -> Result<Enhanced, Error>
-    where
-        R: ReadAt,
-    {
+    fn enhance<R: ReadAt, M: MetadataCrypto>(
+        &self,
+        inner: &InnerReader<R, M>,
+    ) -> Result<Enhanced, Error> {
         Ok(match self.stat.extracted_type {
             FileType::RegularFile => Enhanced::RegularFile,
             FileType::Socket => Enhanced::Socket,
@@ -553,10 +555,10 @@ impl<'a, C: Crypto> Inode<'a, C> {
         })
     }
 
-    fn load_all<R>(&self, inner: R) -> Result<Vec<u8>, Error>
-    where
-        R: ReadAt,
-    {
+    fn load_all<R: ReadAt, M: MetadataCrypto>(
+        &self,
+        inner: &InnerReader<R, M>,
+    ) -> Result<Vec<u8>, Error> {
         let size = usize::try_from(self.stat.size)?;
         let mut ret = vec![0u8; size];
 
@@ -569,10 +571,10 @@ impl<'a, C: Crypto> Inode<'a, C> {
         self.stat.xattrs.get("encryption.c")
     }
 
-    fn read_directory<R>(&self, inner: R) -> Result<Vec<DirEntry>, Error>
-    where
-        R: ReadAt,
-    {
+    fn read_directory<R: ReadAt, M: MetadataCrypto>(
+        &self,
+        inner: &InnerReader<R, M>,
+    ) -> Result<Vec<DirEntry>, Error> {
         let mut dirs = Vec::with_capacity(40);
 
         let data = {
