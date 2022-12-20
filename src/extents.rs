@@ -98,10 +98,6 @@ fn find_part(part: u32, extents: &[Extent]) -> FoundPart {
     FoundPart::Sparse(std::u32::MAX)
 }
 
-impl<'a, R: ReadAt, C: Crypto, M: MetadataCrypto> TreeReader<'a, R, C, M> {
-    // fn decrypt_page(&mut self)
-}
-
 impl<'a, R: ReadAt, C: Crypto, M: MetadataCrypto> io::Read for TreeReader<'a, R, C, M> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         if buf.is_empty() {
