@@ -323,10 +323,7 @@ mod tests {
         let size = 4 + 4 * 2;
         let crypto = NoneCrypto {};
         let metadata_crypto = NoneCrypto {};
-        let data = InnerReader {
-            inner: (0..255u8).collect::<Vec<u8>>(),
-            metadata_crypto,
-        };
+        let data = InnerReader::new((0..255u8).collect::<Vec<u8>>(), metadata_crypto);
         let mut reader = TreeReader::create(
             &data,
             4,
