@@ -5,7 +5,7 @@ use std::convert::TryFrom;
 use std::ffi::OsStr;
 use std::fs;
 use std::io;
-use std::io::{Read, Seek, SeekFrom};
+use std::io::Read;
 use std::path::PathBuf;
 use std::process::Stdio;
 
