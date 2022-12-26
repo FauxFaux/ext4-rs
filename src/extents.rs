@@ -6,9 +6,10 @@ use anyhow::ensure;
 use anyhow::Error;
 use positioned_io::ReadAt;
 
-use crate::{assumption_failed, Crypto, InnerReader};
-use crate::{map_lib_error_to_io, read_le16};
-use crate::{read_le32, MetadataCrypto};
+use crate::{
+    assumption_failed, map_lib_error_to_io, read_le16, read_le32, Crypto, InnerReader,
+    MetadataCrypto,
+};
 
 #[derive(Debug)]
 struct Extent {
