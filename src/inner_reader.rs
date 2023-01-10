@@ -12,7 +12,7 @@ pub trait MetadataCrypto {
 #[derive(Debug)]
 pub struct InnerReader<R: ReadAt, M: MetadataCrypto> {
     pub inner: R,
-    metadata_crypto: M,
+    pub metadata_crypto: M,
 }
 
 impl<R: ReadAt, M: MetadataCrypto> InnerReader<R, M> {

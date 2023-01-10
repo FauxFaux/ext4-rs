@@ -316,6 +316,18 @@ impl<R: ReadAt, C: Crypto, M: MetadataCrypto> SuperBlock<R, C, M> {
         self.crypto = crypto;
     }
 
+    pub fn get_metadata_crypto_mut(&mut self) -> &mut M {
+        &mut self.inner.metadata_crypto
+    }
+
+    pub fn get_metadata_crypto(&self) -> &M {
+        &self.inner.metadata_crypto
+    }
+
+    pub fn set_metadata_crypto(&mut self, crypto: M) {
+        self.inner.metadata_crypto = crypto;
+    }
+
     /// Returns inner R, consuming self
     pub fn into_inner(self) -> R {
         self.inner.inner
