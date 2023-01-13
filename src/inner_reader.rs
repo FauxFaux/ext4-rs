@@ -52,7 +52,7 @@ impl<R: ReadAt, M: MetadataCrypto> InnerReader<R, M> {
             read_offset += CHUNK_SIZE;
         }
 
-        Ok(read_offset)
+        Ok(to_read)
     }
 }
 
