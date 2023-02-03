@@ -77,11 +77,12 @@ bitflags! {
 }
 
 pub fn superblock<R: ReadAt, C: Crypto, M: MetadataCrypto>(
-    mut reader: R,
+    mut raw_reader: R,
     options: &crate::Options,
     crypto: C,
     metadata_crypto: M,
 ) -> Result<crate::SuperBlock<R, C, M>, Error> {
+    let mut reader = InnerReader::new(raw_reader, metadata_crypto);
     let mut entire_superblock = [0u8; 1024];
     reader.read_exact_at(1024, &mut entire_superblock)?;
 
@@ -316,21 +317,23 @@ pub fn superblock<R: ReadAt, C: Crypto, M: MetadataCrypto>(
     let group_table_pos = if 1024 == block_size {
         // for 1k blocks, the table is in the third block, after:
         1024   // boot sector
-        + 1024 // superblock
+            + 1024 // superblock
     } else {
         // for other blocks, the boot sector is in the first 1k of the first block,
         // followed by the superblock (also in first block), and the group table is afterwards
         block_size
     };
 
-    let mut grouper = Cursor::new(&mut reader);
-    grouper.seek(io::SeekFrom::Start(u64::from(group_table_pos)))?;
     let blocks_count = (u64::from(s_blocks_count_lo)
         + (u64::from(s_blocks_count_hi.unwrap_or(0)) << 32)
         - u64::from(s_first_data_block)
         + u64::from(s_blocks_per_group)
         - 1)
         / u64::from(s_blocks_per_group);
+
+    let mut raw_groups = vec![0u8; (blocks_count * block_size as u64) as usize];
+    reader.read_at(u64::from(group_table_pos), &mut raw_groups)?;
+    let mut grouper = Cursor::new(&mut raw_groups);
 
     let groups = crate::block_groups::BlockGroups::new(
         &mut grouper,
@@ -350,7 +353,7 @@ pub fn superblock<R: ReadAt, C: Crypto, M: MetadataCrypto>(
     };
 
     Ok(crate::SuperBlock {
-        inner: InnerReader::new(reader, metadata_crypto),
+        inner: reader,
         load_xattrs,
         uuid_checksum,
         groups,
