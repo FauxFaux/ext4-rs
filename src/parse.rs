@@ -77,12 +77,12 @@ bitflags! {
 }
 
 pub fn superblock<R: ReadAt, C: Crypto, M: MetadataCrypto>(
-    mut raw_reader: R,
+    raw_reader: R,
     options: &crate::Options,
     crypto: C,
     metadata_crypto: M,
 ) -> Result<crate::SuperBlock<R, C, M>, Error> {
-    let mut reader = InnerReader::new(raw_reader, metadata_crypto);
+    let reader = InnerReader::new(raw_reader, metadata_crypto);
     let mut entire_superblock = [0u8; 1024];
     reader.read_exact_at(1024, &mut entire_superblock)?;
 

@@ -1,6 +1,5 @@
-use std::cmp::min;
 use std::io;
-use std::io::{ErrorKind, SeekFrom};
+use std::io::ErrorKind;
 
 use anyhow::Error;
 use positioned_io::ReadAt;
@@ -42,7 +41,7 @@ impl<R: ReadAt, M: MetadataCrypto> InnerReader<R, M> {
         let data_size = buf.len();
         let to_read = data_size + aligned_delta;
 
-        let to_read = if to_read - ((to_read / CHUNK_SIZE) * CHUNK_SIZE) == 0 {
+        let to_read = if to_read % CHUNK_SIZE == 0 {
             to_read
         } else {
             ((to_read / CHUNK_SIZE) * CHUNK_SIZE) + CHUNK_SIZE
