@@ -1,4 +1,3 @@
-use std::cmp::min;
 use std::io;
 use std::io::ErrorKind;
 
@@ -35,24 +34,35 @@ impl<R: ReadAt, M: MetadataCrypto> InnerReader<R, M> {
     ) -> io::Result<usize> {
         let mut read_offset = 0;
         const CHUNK_SIZE: usize = 0x1000;
-        let to_read = buf.len();
 
-        while read_offset < to_read {
-            let mut block_buffer = vec![0u8; CHUNK_SIZE];
-            let address = pos + read_offset as u64;
-            read_fn(address, &mut block_buffer)?;
+        let aligned_address = (pos / CHUNK_SIZE as u64) * CHUNK_SIZE as u64;
+        let aligned_delta = (pos - aligned_address) as usize;
+
+        let data_size = buf.len();
+        let to_read = data_size + aligned_delta;
+
+        let to_read = if to_read % CHUNK_SIZE == 0 {
+            to_read
+        } else {
+            ((to_read / CHUNK_SIZE) * CHUNK_SIZE) + CHUNK_SIZE
+        };
+
+        let mut buffer = vec![0u8; to_read];
+
+        for block_buffer in buffer.chunks_mut(CHUNK_SIZE) {
+            let address = aligned_address + read_offset as u64;
+            read_fn(address, block_buffer)?;
+
             self.metadata_crypto
-                .decrypt(&mut block_buffer, address)
+                .decrypt(block_buffer, address)
                 .map_err(|error| io::Error::new(ErrorKind::Other, error.to_string()))?;
-
-            let expected_size = min(to_read - read_offset, CHUNK_SIZE);
-            buf[read_offset..read_offset + expected_size]
-                .copy_from_slice(&block_buffer[..expected_size]);
 
             read_offset += CHUNK_SIZE;
         }
 
-        Ok(to_read)
+        buf.copy_from_slice(&buffer[aligned_delta..buf.len() + aligned_delta]);
+
+        Ok(data_size)
     }
 }
 
