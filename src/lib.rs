@@ -223,6 +223,7 @@ pub struct SuperBlock<R: ReadAt, C: Crypto, M: MetadataCrypto> {
     load_xattrs: bool,
     /// All* checksums are computed after concatenation with the UUID, so we keep that.
     uuid_checksum: Option<u32>,
+    uuid: [u8; 16],
     groups: block_groups::BlockGroups,
     crypto: C,
 }
@@ -302,6 +303,10 @@ impl<R: ReadAt, C: Crypto, M: MetadataCrypto> SuperBlock<R, C, M> {
         metadata_crypto: M,
     ) -> Result<SuperBlock<R, C, M>, Error> {
         Self::new_with_options_and_crypto(inner, &Options::default(), crypto, metadata_crypto)
+    }
+
+    pub fn get_uuid(&self) -> &[u8; 16] {
+        &self.uuid
     }
 
     pub fn get_crypto_mut(&mut self) -> &mut C {
