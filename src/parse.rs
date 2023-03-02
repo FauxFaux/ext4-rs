@@ -201,8 +201,8 @@ pub fn superblock<R: ReadAt, C: Crypto, M: MetadataCrypto>(
         not_found("checksums are disabled, but required by options")
     );
 
-    let mut s_uuid = [0; 16];
-    inner.read_exact(&mut s_uuid)?; /* 128-bit uuid for volume */
+    let mut uuid = [0; 16];
+    inner.read_exact(&mut uuid)?; /* 128-bit uuid for volume */
     let mut s_volume_name = [0u8; 16];
     inner.read_exact(&mut s_volume_name)?; /* volume name */
     let mut s_last_mounted = [0u8; 64];
@@ -347,7 +347,7 @@ pub fn superblock<R: ReadAt, C: Crypto, M: MetadataCrypto>(
 
     let uuid_checksum = if has_checksums {
         // TODO: check s_checksum_seed
-        Some(ext4_style_crc32c_le(!0, &s_uuid))
+        Some(ext4_style_crc32c_le(!0, &uuid))
     } else {
         None
     };
@@ -355,6 +355,7 @@ pub fn superblock<R: ReadAt, C: Crypto, M: MetadataCrypto>(
     Ok(crate::SuperBlock {
         inner: reader,
         load_xattrs,
+        uuid,
         uuid_checksum,
         groups,
         crypto,
