@@ -4,11 +4,10 @@ use std::io;
 
 use anyhow::ensure;
 use anyhow::Error;
-use positioned_io::ReadAt;
 
 use crate::{
     assumption_failed, map_lib_error_to_io, read_le16, read_le32, Crypto, InnerReader,
-    MetadataCrypto,
+    MetadataCrypto, ReadAt
 };
 
 #[derive(Debug)]
@@ -20,7 +19,7 @@ struct Extent {
 }
 
 pub struct TreeReader<'a, R: ReadAt, C: Crypto, M: MetadataCrypto> {
-    inner: &'a InnerReader<R, M>,
+    inner: &'a mut InnerReader<R, M>,
     pos: u64,
     len: u64,
     block_size: u32,
@@ -31,7 +30,7 @@ pub struct TreeReader<'a, R: ReadAt, C: Crypto, M: MetadataCrypto> {
 
 impl<'a, R: ReadAt, C: Crypto, M: MetadataCrypto> TreeReader<'a, R, C, M> {
     pub fn new(
-        inner: &'a InnerReader<R, M>,
+        inner: &'a mut InnerReader<R, M>,
         block_size: u32,
         size: u64,
         core: [u8; crate::INODE_CORE_SIZE],
@@ -55,7 +54,7 @@ impl<'a, R: ReadAt, C: Crypto, M: MetadataCrypto> TreeReader<'a, R, C, M> {
     }
 
     fn create(
-        inner: &'a InnerReader<R, M>,
+        inner: &'a mut InnerReader<R, M>,
         block_size: u32,
         size: u64,
         extents: Vec<Extent>,

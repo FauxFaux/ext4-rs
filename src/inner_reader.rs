@@ -2,7 +2,8 @@ use std::io;
 use std::io::ErrorKind;
 
 use anyhow::Error;
-use positioned_io::ReadAt;
+
+use crate::ReadAt;
 
 pub trait MetadataCrypto {
     fn decrypt(&self, page: &mut [u8], page_addr: u64) -> Result<(), Error>;
@@ -22,15 +23,15 @@ impl<R: ReadAt, M: MetadataCrypto> InnerReader<R, M> {
         }
     }
 
-    pub fn read_at_without_decrypt(&self, pos: u64, buf: &mut [u8]) -> io::Result<usize> {
+    pub fn read_at_without_decrypt(&mut self, pos: u64, buf: &mut [u8]) -> io::Result<usize> {
         self.inner.read_at(pos, buf)
     }
 
-    fn decrypt<F: Fn(u64, &mut [u8]) -> io::Result<usize>>(
-        &self,
+    fn decrypt<F: FnMut(&mut InnerReader<R, M>, u64, &mut [u8]) -> io::Result<usize>>(
+        &mut self,
         pos: u64,
         buf: &mut [u8],
-        read_fn: F,
+        mut read_fn: F,
     ) -> io::Result<usize> {
         let mut read_offset = 0;
         const CHUNK_SIZE: usize = 0x1000;
@@ -51,7 +52,7 @@ impl<R: ReadAt, M: MetadataCrypto> InnerReader<R, M> {
 
         for block_buffer in buffer.chunks_mut(CHUNK_SIZE) {
             let address = aligned_address + read_offset as u64;
-            read_fn(address, block_buffer)?;
+            read_fn(self, address, block_buffer)?;
 
             self.metadata_crypto
                 .decrypt(block_buffer, address)
@@ -67,15 +68,15 @@ impl<R: ReadAt, M: MetadataCrypto> InnerReader<R, M> {
 }
 
 impl<R: ReadAt, M: MetadataCrypto> ReadAt for InnerReader<R, M> {
-    fn read_at(&self, pos: u64, buf: &mut [u8]) -> io::Result<usize> {
-        self.decrypt(pos, buf, |offset, buffer| {
-            self.read_at_without_decrypt(offset, buffer)
+    fn read_at(&mut self, pos: u64, buf: &mut [u8]) -> io::Result<usize> {
+        self.decrypt(pos, buf, |reader, offset, buffer| {
+            reader.read_at_without_decrypt(offset, buffer)
         })
     }
 
-    fn read_exact_at(&self, pos: u64, buf: &mut [u8]) -> io::Result<()> {
-        self.decrypt(pos, buf, |offset, buffer| {
-            self.inner.read_exact_at(offset, buffer)?;
+    fn read_exact_at(&mut self, pos: u64, buf: &mut [u8]) -> io::Result<()> {
+        self.decrypt(pos, buf, |reader, offset, buffer| {
+            reader.inner.read_exact_at(offset, buffer)?;
             Ok(0)
         })?;
 
