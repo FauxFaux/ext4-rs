@@ -7,7 +7,7 @@ use anyhow::Error;
 
 use crate::{
     assumption_failed, map_lib_error_to_io, read_le16, read_le32, Crypto, InnerReader,
-    MetadataCrypto, ReadAt
+    MetadataCrypto, ReadAt,
 };
 
 #[derive(Debug)]
@@ -319,9 +319,11 @@ mod tests {
         let size = 4 + 4 * 2;
         let crypto = NoneCrypto {};
         let metadata_crypto = NoneCrypto {};
-        let data = InnerReader::new((0..255u8).collect::<Vec<u8>>(), metadata_crypto);
+
+        let cursor = std::io::Cursor::new((0..255u8).collect::<Vec<u8>>());
+        let mut data = InnerReader::new(cursor, metadata_crypto);
         let mut reader = TreeReader::create(
-            &data,
+            &mut data,
             4,
             u64::try_from(size).expect("infallible u64 conversion"),
             vec![

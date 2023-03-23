@@ -6,13 +6,90 @@ use std::ffi::OsStr;
 use std::fs;
 use std::io;
 use std::io::Read;
+use std::io::Seek;
+use std::io::SeekFrom;
 use std::path::PathBuf;
 use std::process::Stdio;
 
 use anyhow::Result;
-use positioned_io::ReadAt;
-use tempfile::NamedTempFile;
 use tempfile::TempDir;
+
+fn calculate_position_after_seek(
+    position: SeekFrom,
+    current_offset: u64,
+    total_size: u64,
+) -> io::Result<u64> {
+    let new_offset = match position {
+        SeekFrom::Current(offset) => current_offset
+            .checked_add_signed(offset)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "Numeric overflow"))?,
+        SeekFrom::End(offset) => total_size
+            .checked_add_signed(offset)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "Numeric overflow"))?,
+        SeekFrom::Start(offset) => offset,
+    };
+
+    if new_offset > total_size {
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            "Out of sub-stream bounds",
+        ));
+    }
+
+    Ok(new_offset)
+}
+
+pub struct StreamSlice<T> {
+    base_stream: T,
+    start_offset: u64,
+    size: u64,
+    current_offset: u64,
+}
+
+impl<T> StreamSlice<T>
+where
+    T: Seek,
+{
+    pub fn new(base_stream: T, start_offset: u64, size: u64) -> Result<StreamSlice<T>> {
+        let mut slice = StreamSlice {
+            base_stream,
+            start_offset,
+            size,
+            current_offset: 0,
+        };
+        slice.seek(SeekFrom::Start(0))?;
+
+        Ok(slice)
+    }
+}
+
+impl<T> Seek for StreamSlice<T>
+where
+    T: Seek,
+{
+    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
+        self.current_offset = calculate_position_after_seek(pos, self.current_offset, self.size)?;
+        self.base_stream
+            .seek(SeekFrom::Start(self.start_offset + self.current_offset))?;
+        Ok(self.current_offset)
+    }
+}
+
+impl<T> Read for StreamSlice<T>
+where
+    T: Seek + Read,
+{
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if self.current_offset > self.size {
+            return Err(io::Error::new(io::ErrorKind::Other, "End of stream"));
+        }
+        let size_to_read = std::cmp::min((self.size - self.current_offset) as usize, buf.len());
+
+        let size = self.base_stream.read(&mut buf[..size_to_read])?;
+        self.current_offset += size as u64;
+        Ok(size)
+    }
+}
 
 #[test]
 fn all_types() -> Result<()> {
@@ -34,8 +111,8 @@ fn all_types() -> Result<()> {
                 _ => panic!("unexpected partition table"),
             }
 
-            let part_reader = positioned_io::Slice::new(&mut img, part.first_byte, Some(part.len));
-            let superblock = ext4::SuperBlock::new(part_reader).unwrap();
+            let part_reader = StreamSlice::new(&mut img, part.first_byte, part.len)?;
+            let mut superblock = ext4::SuperBlock::new(part_reader).unwrap();
             let root = superblock.root().unwrap();
             superblock
                 .walk(&root, "", &mut |fs, path, inode, enhanced| {
@@ -68,10 +145,11 @@ fn all_types() -> Result<()> {
                 .unwrap();
             assert_eq!("Hello, world!\n", s);
 
+            let future_file_inode = superblock.resolve_path("future-file").unwrap().inode;
             assert_eq!(
                 11847456550,
                 superblock
-                    .load_inode(superblock.resolve_path("future-file").unwrap().inode)
+                    .load_inode(future_file_inode)
                     .unwrap()
                     .stat
                     .mtime
@@ -83,16 +161,6 @@ fn all_types() -> Result<()> {
     assert_eq!(28 * 5, files_successfully_processed);
 
     Ok(())
-}
-
-struct ReadAtTempFile {
-    inner: NamedTempFile,
-}
-
-impl ReadAt for ReadAtTempFile {
-    fn read_at(&self, pos: u64, buf: &mut [u8]) -> io::Result<usize> {
-        self.inner.as_file().read_at(pos, buf)
-    }
 }
 
 struct Assets {

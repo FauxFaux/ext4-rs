@@ -438,7 +438,7 @@ impl<R: ReadAt, C: Crypto, M: MetadataCrypto> SuperBlock<R, C, M> {
     /// The method returns `true` if the closure always returned true.
     pub fn walk<F>(&mut self, inode: &Inode, path: &str, visit: &mut F) -> Result<bool, Error>
     where
-        F: FnMut(&Self, &str, &Inode, &Enhanced) -> Result<bool, Error>,
+        F: FnMut(&mut Self, &str, &Inode, &Enhanced) -> Result<bool, Error>,
     {
         let enhanced = inode.enhance(&mut self.inner, &self.crypto)?;
 
@@ -519,8 +519,8 @@ impl<R: ReadAt, C: Crypto, M: MetadataCrypto> SuperBlock<R, C, M> {
     }
 
     /// Read the data from an inode. You might not want to call this on thigns that aren't regular files.
-    pub fn open<'a>(&'a mut self, inode: &'a Inode, crypto: &'a C) -> Result<TreeReader<'a, R, C, M>, Error> {
-        inode.reader(&mut self.inner, crypto)
+    pub fn open<'a>(&'a mut self, inode: &'a Inode) -> Result<TreeReader<'a, R, C, M>, Error> {
+        inode.reader(&mut self.inner, &self.crypto)
     }
 
     /// Load extra metadata about some types of entries.
