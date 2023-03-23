@@ -22,7 +22,6 @@ anyhow = { version = "1.0.58", features = ["backtrace"] }
 bitflags = "1"
 byteorder = "1"
 crc = "1"
-positioned-io = "0.2"
 thiserror = "1"
 
 [dev-dependencies]

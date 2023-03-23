@@ -20,7 +20,7 @@ file on the filesystem. You can grant yourself temporary access with
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::io;
-use std::io::Seek;
+use std::io::{Seek, SeekFrom};
 use std::io::{ErrorKind, Read};
 
 use anyhow::anyhow;
@@ -29,7 +29,6 @@ use anyhow::Context;
 use anyhow::Error;
 use bitflags::bitflags;
 use byteorder::{LittleEndian, ReadBytesExt};
-use positioned_io::ReadAt;
 
 mod block_groups;
 mod extents;
@@ -42,6 +41,46 @@ pub mod parse;
 use crate::extents::TreeReader;
 pub use crate::none_crypto::NoneCrypto;
 pub use inner_reader::{InnerReader, MetadataCrypto};
+
+pub trait ReadAt {
+    /// Read bytes from an offset in this source into a buffer, returning how many bytes were read.
+    ///
+    /// This function may yield fewer bytes than the size of `buf`, if it was interrupted or hit
+    /// end-of-file.
+    ///
+    /// See [`Read::read()`](https://doc.rust-lang.org/std/io/trait.Read.html#tymethod.read).
+    fn read_at(&mut self, pos: u64, buf: &mut [u8]) -> io::Result<usize>;
+
+    /// Read the exact number of bytes required to fill `buf`, from an offset.
+    ///
+    /// If only a lesser number of bytes can be read, will yield an error.
+    fn read_exact_at(&mut self, mut pos: u64, mut buf: &mut [u8]) -> io::Result<()> {
+        while !buf.is_empty() {
+            match self.read_at(pos, buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    let tmp = buf;
+                    buf = &mut tmp[n..];
+                    pos += n as u64;
+                }
+                Err(ref e) if e.kind() == ErrorKind::Interrupted => {}
+                Err(e) => return Err(e),
+            }
+        }
+        if !buf.is_empty() {
+            Err(io::Error::new(ErrorKind::UnexpectedEof, "failed to fill whole buffer"))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl<T> ReadAt for T where T: Read + Seek {
+    fn read_at(&mut self, pos: u64, buf: &mut [u8]) -> io::Result<usize> {
+        self.seek(SeekFrom::Start(pos))?;
+        self.read(buf)
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum ParseError {
@@ -202,7 +241,7 @@ pub trait Crypto {
 }
 
 /// An actual disc metadata entry.
-pub struct Inode<'a, C: Crypto> {
+pub struct Inode {
     pub stat: Stat,
     pub number: u32,
     flags: InodeFlags,
@@ -213,7 +252,6 @@ pub struct Inode<'a, C: Crypto> {
     /// I made up a new name.
     core: [u8; INODE_CORE_SIZE],
     block_size: u32,
-    crypto: &'a C,
 }
 
 /// The critical core of the filesystem.
@@ -353,7 +391,7 @@ impl<R: ReadAt, C: Crypto, M: MetadataCrypto> SuperBlock<R, C, M> {
     }
 
     /// Load a filesystem entry by inode number.
-    pub fn load_inode(&self, inode: u32) -> Result<Inode<C>, Error> {
+    pub fn load_inode(&mut self, inode: u32) -> Result<Inode, Error> {
         let data = self
             .load_inode_bytes(inode)
             .with_context(|| anyhow!("failed to find inode <{}> on disc", inode))?;
@@ -374,23 +412,22 @@ impl<R: ReadAt, C: Crypto, M: MetadataCrypto> SuperBlock<R, C, M> {
             core: parsed.core,
             checksum_prefix: parsed.checksum_prefix,
             block_size: self.groups.block_size,
-            crypto: &self.crypto,
         })
     }
 
-    fn load_inode_bytes(&self, inode: u32) -> Result<Vec<u8>, Error> {
+    fn load_inode_bytes(&mut self, inode: u32) -> Result<Vec<u8>, Error> {
         let offset = self.groups.index_of(inode)?;
         let mut data = vec![0u8; usize::try_from(self.groups.inode_size)?];
         self.inner.read_exact_at(offset, &mut data)?;
         Ok(data)
     }
 
-    fn load_disc_bytes(&self, block: u64) -> Result<Vec<u8>, Error> {
-        load_disc_bytes(&self.inner, self.groups.block_size, block)
+    fn load_disc_bytes(&mut self, block: u64) -> Result<Vec<u8>, Error> {
+        load_disc_bytes(&mut self.inner, self.groups.block_size, block)
     }
 
     /// Load the root node of the filesystem (typically `/`).
-    pub fn root(&self) -> Result<Inode<C>, Error> {
+    pub fn root(&mut self) -> Result<Inode, Error> {
         Ok(self
             .load_inode(2)
             .with_context(|| anyhow!("failed to load root inode"))?)
@@ -399,11 +436,11 @@ impl<R: ReadAt, C: Crypto, M: MetadataCrypto> SuperBlock<R, C, M> {
     /// Visit every entry in the filesystem in an arbitrary order.
     /// The closure should return `true` if it wants walking to continue.
     /// The method returns `true` if the closure always returned true.
-    pub fn walk<F>(&self, inode: &Inode<C>, path: &str, visit: &mut F) -> Result<bool, Error>
+    pub fn walk<F>(&mut self, inode: &Inode, path: &str, visit: &mut F) -> Result<bool, Error>
     where
-        F: FnMut(&Self, &str, &Inode<C>, &Enhanced) -> Result<bool, Error>,
+        F: FnMut(&mut Self, &str, &Inode, &Enhanced) -> Result<bool, Error>,
     {
-        let enhanced = inode.enhance(&self.inner)?;
+        let enhanced = inode.enhance(&mut self.inner, &self.crypto)?;
 
         if !visit(self, path, inode, &enhanced).with_context(|| anyhow!("user closure failed"))? {
             return Ok(false);
@@ -438,7 +475,7 @@ impl<R: ReadAt, C: Crypto, M: MetadataCrypto> SuperBlock<R, C, M> {
 
     /// Parse a path, and find the directory entry it represents.
     /// Note that "/foo/../bar" will be treated literally, not resolved to "/bar" then looked up.
-    pub fn resolve_path(&self, path: &str) -> Result<DirEntry, Error> {
+    pub fn resolve_path(&mut self, path: &str) -> Result<DirEntry, Error> {
         let path = path.replace('\\', "/");
         let path = path.trim_end_matches('/');
 
@@ -469,7 +506,7 @@ impl<R: ReadAt, C: Crypto, M: MetadataCrypto> SuperBlock<R, C, M> {
         self.dir_entry_named(&curr, last)
     }
 
-    fn dir_entry_named(&self, inode: &Inode<C>, name: &str) -> Result<DirEntry, Error> {
+    fn dir_entry_named(&mut self, inode: &Inode, name: &str) -> Result<DirEntry, Error> {
         if let Enhanced::Directory(entries) = self.enhance(inode)? {
             if let Some(en) = entries.into_iter().find(|entry| entry.name == name) {
                 Ok(en)
@@ -482,18 +519,18 @@ impl<R: ReadAt, C: Crypto, M: MetadataCrypto> SuperBlock<R, C, M> {
     }
 
     /// Read the data from an inode. You might not want to call this on thigns that aren't regular files.
-    pub fn open<'a>(&'a self, inode: &'a Inode<C>) -> Result<TreeReader<'a, R, C, M>, Error> {
-        inode.reader(&self.inner)
+    pub fn open<'a>(&'a mut self, inode: &'a Inode) -> Result<TreeReader<'a, R, C, M>, Error> {
+        inode.reader(&mut self.inner, &self.crypto)
     }
 
     /// Load extra metadata about some types of entries.
-    pub fn enhance(&self, inode: &Inode<C>) -> Result<Enhanced, Error> {
-        inode.enhance(&self.inner)
+    pub fn enhance(&mut self, inode: &Inode) -> Result<Enhanced, Error> {
+        inode.enhance(&mut self.inner, &self.crypto)
     }
 }
 
 fn load_disc_bytes<R: ReadAt, M: MetadataCrypto>(
-    inner: &InnerReader<R, M>,
+    inner: &mut InnerReader<R, M>,
     block_size: u32,
     block: u64,
 ) -> Result<Vec<u8>, Error> {
@@ -503,10 +540,11 @@ fn load_disc_bytes<R: ReadAt, M: MetadataCrypto>(
     Ok(data)
 }
 
-impl<'a, C: Crypto> Inode<'a, C> {
-    fn reader<R: ReadAt, M: MetadataCrypto>(
-        &self,
-        inner: &'a InnerReader<R, M>,
+impl Inode {
+    fn reader<'a, R: ReadAt, C: Crypto, M: MetadataCrypto>(
+        &'a self,
+        inner: &'a mut InnerReader<R, M>,
+        crypto: &'a C
     ) -> Result<TreeReader<R, C, M>, Error> {
         let context = if matches!(self.stat.extracted_type, FileType::RegularFile) {
             self.get_encryption_context()
@@ -521,21 +559,22 @@ impl<'a, C: Crypto> Inode<'a, C> {
             self.core,
             self.checksum_prefix,
             context,
-            self.crypto,
+            crypto,
         )
         .with_context(|| anyhow!("opening inode <{}>", self.number))?)
     }
 
-    fn enhance<R: ReadAt, M: MetadataCrypto>(
+    fn enhance<R: ReadAt, C: Crypto, M: MetadataCrypto>(
         &self,
-        inner: &InnerReader<R, M>,
+        inner: &mut InnerReader<R, M>,
+        crypto: &C
     ) -> Result<Enhanced, Error> {
         Ok(match self.stat.extracted_type {
             FileType::RegularFile => Enhanced::RegularFile,
             FileType::Socket => Enhanced::Socket,
             FileType::Fifo => Enhanced::Fifo,
 
-            FileType::Directory => Enhanced::Directory(self.read_directory(inner)?),
+            FileType::Directory => Enhanced::Directory(self.read_directory(inner, crypto)?),
             FileType::SymbolicLink => {
                 Enhanced::SymbolicLink(if self.stat.size < u64::try_from(INODE_CORE_SIZE)? {
                     ensure!(
@@ -556,7 +595,7 @@ impl<'a, C: Crypto> Inode<'a, C> {
                             self.flags
                         ))
                     );
-                    std::str::from_utf8(&self.load_all(inner)?)
+                    std::str::from_utf8(&self.load_all(inner, crypto)?)
                         .with_context(|| anyhow!("long symlink is invalid utf-8"))?
                         .to_string()
                 })
@@ -572,14 +611,15 @@ impl<'a, C: Crypto> Inode<'a, C> {
         })
     }
 
-    fn load_all<R: ReadAt, M: MetadataCrypto>(
+    fn load_all<R: ReadAt, C: Crypto, M: MetadataCrypto>(
         &self,
-        inner: &InnerReader<R, M>,
+        inner: &mut InnerReader<R, M>,
+        crypto: &C
     ) -> Result<Vec<u8>, Error> {
         let size = usize::try_from(self.stat.size)?;
         let mut ret = vec![0u8; size];
 
-        self.reader(inner)?.read_exact(&mut ret)?;
+        self.reader(inner, crypto)?.read_exact(&mut ret)?;
 
         Ok(ret)
     }
@@ -588,9 +628,10 @@ impl<'a, C: Crypto> Inode<'a, C> {
         self.stat.xattrs.get("encryption.c")
     }
 
-    fn read_directory<R: ReadAt, M: MetadataCrypto>(
+    fn read_directory<R: ReadAt, C: Crypto, M: MetadataCrypto>(
         &self,
-        inner: &InnerReader<R, M>,
+        inner: &mut InnerReader<R, M>,
+        crypto: &C
     ) -> Result<Vec<DirEntry>, Error> {
         let mut dirs = Vec::with_capacity(40);
 
@@ -604,7 +645,7 @@ impl<'a, C: Crypto> Inode<'a, C> {
                 ))
             );
 
-            self.load_all(inner)?
+            self.load_all(inner, crypto)?
         };
 
         let total_len = data.len();
@@ -633,7 +674,7 @@ impl<'a, C: Crypto> Inode<'a, C> {
                     self.get_encryption_context(),
                     [b".".as_slice(), b"..".as_slice()].contains(&name.as_slice()),
                 ) {
-                    self.crypto.decrypt_filename(context, &name)?
+                    crypto.decrypt_filename(context, &name)?
                 } else {
                     name
                 };

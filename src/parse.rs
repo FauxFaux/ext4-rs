@@ -3,6 +3,7 @@ use std::convert::TryFrom;
 use std::io;
 use std::io::Read;
 use std::io::Seek;
+use std::io::Cursor;
 
 use anyhow::anyhow;
 use anyhow::bail;
@@ -11,8 +12,6 @@ use anyhow::Context;
 use anyhow::Error;
 use bitflags::bitflags;
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
-use positioned_io::Cursor;
-use positioned_io::ReadAt;
 
 use crate::unsupported_feature;
 use crate::Time;
@@ -21,6 +20,7 @@ use crate::{map_lib_error_to_io, parse_error};
 use crate::{not_found, Crypto};
 use crate::{read_le16, MetadataCrypto};
 use crate::{read_le32, InnerReader};
+use crate::ReadAt;
 
 const EXT4_SUPER_MAGIC: u16 = 0xEF53;
 const INODE_BASE_LEN: usize = 128;
@@ -82,7 +82,7 @@ pub fn superblock<R: ReadAt, C: Crypto, M: MetadataCrypto>(
     crypto: C,
     metadata_crypto: M,
 ) -> Result<crate::SuperBlock<R, C, M>, Error> {
-    let reader = InnerReader::new(raw_reader, metadata_crypto);
+    let mut reader = InnerReader::new(raw_reader, metadata_crypto);
     let mut entire_superblock = [0u8; 1024];
     reader.read_exact_at(1024, &mut entire_superblock)?;
 
