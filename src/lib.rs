@@ -177,8 +177,6 @@ pub enum Enhanced {
     RegularFile,
     /// A symlink, with its decoded destination.
     SymbolicLink(String),
-    /// A symlink, with its encrypted destination.
-    EncryptedSymbolicLink(Vec<u8>),
     /// A 'c' device, with its major and minor numbers.
     CharacterDevice(u16, u32),
     /// A 'b' device, with its major and minor numbers.
@@ -584,7 +582,7 @@ impl Inode {
 
             FileType::Directory => Enhanced::Directory(self.read_directory(inner, crypto)?),
             FileType::SymbolicLink => {
-                if self.stat.size < u64::try_from(INODE_CORE_SIZE)? {
+                let mut points_to = if self.stat.size < u64::try_from(INODE_CORE_SIZE)? {
                     ensure!(
                         (self.flags & !InodeFlags::ENCRYPT).is_empty(),
                         unsupported_feature(format!(
@@ -593,17 +591,7 @@ impl Inode {
                         ))
                     );
 
-                    let body = &self.core[0..usize::try_from(self.stat.size)?];
-
-                    if self.flags & InodeFlags::ENCRYPT == InodeFlags::ENCRYPT {
-                        Enhanced::EncryptedSymbolicLink(body.to_vec())
-                    } else {
-                        Enhanced::SymbolicLink(
-                            std::str::from_utf8(body)
-                                .with_context(|| anyhow!("short symlink is invalid utf-8"))?
-                                .to_string(),
-                        )
-                    }
+                    self.core[0..usize::try_from(self.stat.size)?].to_vec()
                 } else {
                     ensure!(
                         Self::only_relevant_flag_is_extents_static(
@@ -615,18 +603,28 @@ impl Inode {
                         ))
                     );
 
-                    let body = self.load_all(inner, crypto)?;
+                    self.load_all(inner, crypto)?
+                };
 
-                    if self.flags & InodeFlags::ENCRYPT == InodeFlags::ENCRYPT {
-                        Enhanced::EncryptedSymbolicLink(body.to_vec())
-                    } else {
-                        Enhanced::SymbolicLink(
-                            std::str::from_utf8(&body)
-                                .with_context(|| anyhow!("long symlink is invalid utf-8"))?
-                                .to_string(),
-                        )
-                    }
+                if self.flags & InodeFlags::ENCRYPT == InodeFlags::ENCRYPT {
+                    let mut cursor = io::Cursor::new(points_to.as_slice());
+                    let name_size = cursor.read_u16::<LittleEndian>()?;
+
+                    let mut encrypted_filename = vec![0u8; name_size as usize];
+                    cursor.read_exact(&mut encrypted_filename)?;
+
+                    let context = self.get_encryption_context().with_context(|| {
+                        anyhow!("encrypted short symlink has no encryption context")
+                    })?;
+
+                    points_to = crypto.decrypt_filename(context, &encrypted_filename)?;
                 }
+
+                let points_to = std::str::from_utf8(&points_to)
+                    .with_context(|| anyhow!("symlink is invalid utf-8"))?
+                    .to_string();
+
+                Enhanced::SymbolicLink(points_to.trim_end_matches('\0').to_string())
             }
             FileType::CharacterDevice => {
                 let (maj, min) = load_maj_min(self.core);
