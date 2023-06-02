@@ -594,9 +594,7 @@ impl Inode {
                     self.core[0..usize::try_from(self.stat.size)?].to_vec()
                 } else {
                     ensure!(
-                        Self::only_relevant_flag_is_extents_static(
-                            self.flags & !InodeFlags::ENCRYPT
-                        ),
+                        Self::only_relevant_flag_is_extents(self.flags & !InodeFlags::ENCRYPT),
                         unsupported_feature(format!(
                             "symbolic links may not have non-extent flags: {:?}",
                             self.flags
@@ -664,7 +662,8 @@ impl Inode {
         let data = {
             // if the flags, minus irrelevant flags, isn't just EXTENTS...
             ensure!(
-                self.get_encryption_context().is_some() || self.only_relevant_flag_is_extents(),
+                self.get_encryption_context().is_some()
+                    || Self::only_relevant_flag_is_extents(self.flags),
                 unsupported_feature(format!(
                     "inode with unsupported flags: {0:x} {0:b}",
                     self.flags
@@ -764,11 +763,7 @@ impl Inode {
         Ok(dirs)
     }
 
-    fn only_relevant_flag_is_extents(&self) -> bool {
-        Self::only_relevant_flag_is_extents_static(self.flags)
-    }
-
-    fn only_relevant_flag_is_extents_static(flags: InodeFlags) -> bool {
+    fn only_relevant_flag_is_extents(flags: InodeFlags) -> bool {
         flags
             & (InodeFlags::COMPR
                 | InodeFlags::DIRTY
