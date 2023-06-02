@@ -20,8 +20,8 @@ file on the filesystem. You can grant yourself temporary access with
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::io;
-use std::io::{Seek, SeekFrom};
 use std::io::{ErrorKind, Read};
+use std::io::{Seek, SeekFrom};
 
 use anyhow::anyhow;
 use anyhow::ensure;
@@ -68,14 +68,20 @@ pub trait ReadAt {
             }
         }
         if !buf.is_empty() {
-            Err(io::Error::new(ErrorKind::UnexpectedEof, "failed to fill whole buffer"))
+            Err(io::Error::new(
+                ErrorKind::UnexpectedEof,
+                "failed to fill whole buffer",
+            ))
         } else {
             Ok(())
         }
     }
 }
 
-impl<T> ReadAt for T where T: Read + Seek {
+impl<T> ReadAt for T
+where
+    T: Read + Seek,
+{
     fn read_at(&mut self, pos: u64, buf: &mut [u8]) -> io::Result<usize> {
         self.seek(SeekFrom::Start(pos))?;
         self.read(buf)
@@ -171,6 +177,8 @@ pub enum Enhanced {
     RegularFile,
     /// A symlink, with its decoded destination.
     SymbolicLink(String),
+    /// A symlink, with its encrypted destination.
+    EncryptedSymbolicLink(Vec<u8>),
     /// A 'c' device, with its major and minor numbers.
     CharacterDevice(u16, u32),
     /// A 'b' device, with its major and minor numbers.
@@ -544,7 +552,7 @@ impl Inode {
     fn reader<'a, R: ReadAt, C: Crypto, M: MetadataCrypto>(
         &'a self,
         inner: &'a mut InnerReader<R, M>,
-        crypto: &'a C
+        crypto: &'a C,
     ) -> Result<TreeReader<R, C, M>, Error> {
         let context = if matches!(self.stat.extracted_type, FileType::RegularFile) {
             self.get_encryption_context()
@@ -567,7 +575,7 @@ impl Inode {
     fn enhance<R: ReadAt, C: Crypto, M: MetadataCrypto>(
         &self,
         inner: &mut InnerReader<R, M>,
-        crypto: &C
+        crypto: &C,
     ) -> Result<Enhanced, Error> {
         Ok(match self.stat.extracted_type {
             FileType::RegularFile => Enhanced::RegularFile,
@@ -576,29 +584,49 @@ impl Inode {
 
             FileType::Directory => Enhanced::Directory(self.read_directory(inner, crypto)?),
             FileType::SymbolicLink => {
-                Enhanced::SymbolicLink(if self.stat.size < u64::try_from(INODE_CORE_SIZE)? {
+                if self.stat.size < u64::try_from(INODE_CORE_SIZE)? {
                     ensure!(
-                        self.flags.is_empty(),
+                        (self.flags & !InodeFlags::ENCRYPT).is_empty(),
                         unsupported_feature(format!(
                             "symbolic links may not have flags: {:?}",
                             self.flags
                         ))
                     );
-                    std::str::from_utf8(&self.core[0..usize::try_from(self.stat.size)?])
-                        .with_context(|| anyhow!("short symlink is invalid utf-8"))?
-                        .to_string()
+
+                    let body = &self.core[0..usize::try_from(self.stat.size)?];
+
+                    if self.flags & InodeFlags::ENCRYPT == InodeFlags::ENCRYPT {
+                        Enhanced::EncryptedSymbolicLink(body.to_vec())
+                    } else {
+                        Enhanced::SymbolicLink(
+                            std::str::from_utf8(body)
+                                .with_context(|| anyhow!("short symlink is invalid utf-8"))?
+                                .to_string(),
+                        )
+                    }
                 } else {
                     ensure!(
-                        self.only_relevant_flag_is_extents(),
+                        Self::only_relevant_flag_is_extents_static(
+                            self.flags & !InodeFlags::ENCRYPT
+                        ),
                         unsupported_feature(format!(
                             "symbolic links may not have non-extent flags: {:?}",
                             self.flags
                         ))
                     );
-                    std::str::from_utf8(&self.load_all(inner, crypto)?)
-                        .with_context(|| anyhow!("long symlink is invalid utf-8"))?
-                        .to_string()
-                })
+
+                    let body = self.load_all(inner, crypto)?;
+
+                    if self.flags & InodeFlags::ENCRYPT == InodeFlags::ENCRYPT {
+                        Enhanced::EncryptedSymbolicLink(body.to_vec())
+                    } else {
+                        Enhanced::SymbolicLink(
+                            std::str::from_utf8(&body)
+                                .with_context(|| anyhow!("long symlink is invalid utf-8"))?
+                                .to_string(),
+                        )
+                    }
+                }
             }
             FileType::CharacterDevice => {
                 let (maj, min) = load_maj_min(self.core);
@@ -614,7 +642,7 @@ impl Inode {
     fn load_all<R: ReadAt, C: Crypto, M: MetadataCrypto>(
         &self,
         inner: &mut InnerReader<R, M>,
-        crypto: &C
+        crypto: &C,
     ) -> Result<Vec<u8>, Error> {
         let size = usize::try_from(self.stat.size)?;
         let mut ret = vec![0u8; size];
@@ -631,7 +659,7 @@ impl Inode {
     fn read_directory<R: ReadAt, C: Crypto, M: MetadataCrypto>(
         &self,
         inner: &mut InnerReader<R, M>,
-        crypto: &C
+        crypto: &C,
     ) -> Result<Vec<DirEntry>, Error> {
         let mut dirs = Vec::with_capacity(40);
 
@@ -739,7 +767,11 @@ impl Inode {
     }
 
     fn only_relevant_flag_is_extents(&self) -> bool {
-        self.flags
+        Self::only_relevant_flag_is_extents_static(self.flags)
+    }
+
+    fn only_relevant_flag_is_extents_static(flags: InodeFlags) -> bool {
+        flags
             & (InodeFlags::COMPR
                 | InodeFlags::DIRTY
                 | InodeFlags::COMPRBLK
