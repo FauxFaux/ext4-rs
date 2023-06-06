@@ -591,7 +591,10 @@ impl Inode {
                         ))
                     );
 
-                    self.core[0..usize::try_from(self.stat.size)?].to_vec()
+                    let mut points_to = vec![0u8; usize::try_from(self.stat.size)?];
+                    io::Cursor::new(&self.core).read_exact(&mut points_to)?;
+
+                    points_to
                 } else {
                     ensure!(
                         Self::only_relevant_flag_is_extents(self.flags & !InodeFlags::ENCRYPT),
