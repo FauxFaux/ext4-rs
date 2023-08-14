@@ -18,7 +18,9 @@ impl Crypto for NoneCrypto {
         &self,
         _context: &[u8],
         _page: &mut [u8],
+        _page_offset: u64,
         _page_addr: u64,
+        _ino: u32,
     ) -> Result<(), Error> {
         Ok(())
     }

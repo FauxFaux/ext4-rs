@@ -26,6 +26,7 @@ pub struct TreeReader<'a, R: ReadAt, C: Crypto, M: MetadataCrypto> {
     extents: Vec<Extent>,
     encryption_context: Option<&'a Vec<u8>>,
     crypto: &'a C,
+    ino: u32,
 }
 
 impl<'a, R: ReadAt, C: Crypto, M: MetadataCrypto> TreeReader<'a, R, C, M> {
@@ -37,12 +38,14 @@ impl<'a, R: ReadAt, C: Crypto, M: MetadataCrypto> TreeReader<'a, R, C, M> {
         checksum_prefix: Option<u32>,
         encryption_context: Option<&'a Vec<u8>>,
         crypto: &'a C,
+        ino: u32,
     ) -> Result<TreeReader<'a, R, C, M>, Error> {
         let extents = load_extent_tree(
             &mut |block| crate::load_disc_bytes(inner, block_size, block),
             core,
             checksum_prefix,
         )?;
+
         Ok(TreeReader::create(
             inner,
             block_size,
@@ -50,6 +53,7 @@ impl<'a, R: ReadAt, C: Crypto, M: MetadataCrypto> TreeReader<'a, R, C, M> {
             extents,
             encryption_context,
             crypto,
+            ino,
         ))
     }
 
@@ -60,6 +64,7 @@ impl<'a, R: ReadAt, C: Crypto, M: MetadataCrypto> TreeReader<'a, R, C, M> {
         extents: Vec<Extent>,
         encryption_context: Option<&'a Vec<u8>>,
         crypto: &'a C,
+        ino: u32,
     ) -> TreeReader<'a, R, C, M> {
         TreeReader {
             pos: 0,
@@ -69,6 +74,7 @@ impl<'a, R: ReadAt, C: Crypto, M: MetadataCrypto> TreeReader<'a, R, C, M> {
             block_size,
             encryption_context,
             crypto,
+            ino,
         }
     }
 
@@ -113,41 +119,46 @@ impl<'a, R: ReadAt, C: Crypto, M: MetadataCrypto> io::Read for TreeReader<'a, R,
             FoundPart::Actual(extent) => {
                 let bytes_through_extent =
                     (block_size * u64::from(wanted_block - extent.part)) + read_of_this_block;
+
                 let remaining_bytes_in_extent =
                     (u64::from(extent.len) * block_size) - bytes_through_extent;
+
                 let to_read = min(remaining_bytes_in_extent, buf.len() as u64) as usize;
                 let to_read = min(to_read as u64, self.len - self.pos) as usize;
-                let offset = extent.start * block_size + bytes_through_extent;
+
+                let content_offset = extent.start * block_size + bytes_through_extent;
 
                 let read = if let Some(context) = self.encryption_context {
-                    let mut read_offset = 0;
+                    let mut page_offset = 0;
                     let chunk_size = block_size as usize;
 
-                    while read_offset < to_read {
-                        let mut block_buffer = vec![0u8; chunk_size];
-                        self.inner.read_at_without_decrypt(
-                            offset + read_offset as u64,
-                            &mut block_buffer[0..chunk_size],
-                        )?;
+                    while page_offset < to_read {
+                        let page_addr = content_offset + page_offset as u64;
+
+                        let mut page = vec![0u8; chunk_size];
+                        self.inner
+                            .read_at_without_decrypt(page_addr, page.as_mut_slice())?;
 
                         self.crypto
                             .decrypt_page(
                                 context,
-                                &mut block_buffer[0..chunk_size],
-                                offset + read_offset as u64,
+                                page.as_mut_slice(),
+                                page_offset as u64,
+                                page_addr,
+                                self.ino,
                             )
                             .map_err(map_lib_error_to_io)?;
 
-                        let expected_size = min(to_read - read_offset, chunk_size);
-                        buf[read_offset..read_offset + expected_size]
-                            .copy_from_slice(&block_buffer[..expected_size]);
+                        let expected_size = min(to_read - page_offset, chunk_size);
+                        buf[page_offset..page_offset + expected_size]
+                            .copy_from_slice(&page[..expected_size]);
 
-                        read_offset += chunk_size;
+                        page_offset += chunk_size;
                     }
 
                     to_read
                 } else {
-                    self.inner.read_at(offset, &mut buf[0..to_read])?
+                    self.inner.read_at(content_offset, &mut buf[0..to_read])?
                 };
 
                 self.pos += u64::try_from(read).map_err(map_lib_error_to_io)?;
@@ -340,6 +351,7 @@ mod tests {
             ],
             None,
             &crypto,
+            0,
         );
 
         let mut res = Vec::new();

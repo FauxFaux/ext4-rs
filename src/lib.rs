@@ -243,7 +243,14 @@ const INODE_CORE_SIZE: usize = 4 * 15;
 
 pub trait Crypto {
     fn decrypt_filename(&self, context: &[u8], encrypted_name: &[u8]) -> Result<Vec<u8>, Error>;
-    fn decrypt_page(&self, context: &[u8], page: &mut [u8], page_addr: u64) -> Result<(), Error>;
+    fn decrypt_page(
+        &self,
+        context: &[u8],
+        page: &mut [u8],
+        page_offset: u64,
+        page_addr: u64,
+        ino: u32,
+    ) -> Result<(), Error>;
 }
 
 /// An actual disc metadata entry.
@@ -566,6 +573,7 @@ impl Inode {
             self.checksum_prefix,
             context,
             crypto,
+            self.number,
         )
         .with_context(|| anyhow!("opening inode <{}>", self.number))?)
     }
