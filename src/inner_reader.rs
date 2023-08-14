@@ -6,7 +6,7 @@ use anyhow::Error;
 use crate::ReadAt;
 
 pub trait MetadataCrypto {
-    fn decrypt(&self, page: &mut [u8], page_addr: u64) -> Result<(), Error>;
+    fn decrypt_page(&self, page: &mut [u8], page_addr: u64) -> Result<(), Error>;
 }
 
 #[derive(Debug)]
@@ -50,12 +50,12 @@ impl<R: ReadAt, M: MetadataCrypto> InnerReader<R, M> {
 
         let mut buffer = vec![0u8; to_read];
 
-        for block_buffer in buffer.chunks_mut(CHUNK_SIZE) {
-            let address = aligned_address + read_offset as u64;
-            read_fn(self, address, block_buffer)?;
+        for page in buffer.chunks_mut(CHUNK_SIZE) {
+            let page_address = aligned_address + read_offset as u64;
+            read_fn(self, page_address, page)?;
 
             self.metadata_crypto
-                .decrypt(block_buffer, address)
+                .decrypt_page(page, page_address)
                 .map_err(|error| io::Error::new(ErrorKind::Other, error.to_string()))?;
 
             read_offset += CHUNK_SIZE;
