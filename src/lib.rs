@@ -242,8 +242,21 @@ pub struct Stat {
 const INODE_CORE_SIZE: usize = 4 * 15;
 
 pub trait Crypto {
-    fn decrypt_filename(&self, context: &[u8], encrypted_name: &[u8]) -> Result<Vec<u8>, Error>;
-    fn decrypt_page(&self, context: &[u8], page: &mut [u8], page_addr: u64) -> Result<(), Error>;
+    fn decrypt_filename(
+        &self,
+        context: &[u8],
+        encrypted_name: &[u8],
+        ino: u32,
+    ) -> Result<Vec<u8>, Error>;
+
+    fn decrypt_page(
+        &self,
+        context: &[u8],
+        page: &mut [u8],
+        page_offset: u64,
+        page_addr: u64,
+        ino: u32,
+    ) -> Result<(), Error>;
 }
 
 /// An actual disc metadata entry.
@@ -566,6 +579,7 @@ impl Inode {
             self.checksum_prefix,
             context,
             crypto,
+            self.number,
         )
         .with_context(|| anyhow!("opening inode <{}>", self.number))?)
     }
@@ -618,7 +632,8 @@ impl Inode {
                         anyhow!("encrypted short symlink has no encryption context")
                     })?;
 
-                    points_to = crypto.decrypt_filename(context, &encrypted_filename)?;
+                    points_to =
+                        crypto.decrypt_filename(context, &encrypted_filename, self.number)?;
                 }
 
                 let points_to = std::str::from_utf8(&points_to)
@@ -702,7 +717,7 @@ impl Inode {
                     self.get_encryption_context(),
                     [b".".as_slice(), b"..".as_slice()].contains(&name.as_slice()),
                 ) {
-                    crypto.decrypt_filename(context, &name)?
+                    crypto.decrypt_filename(context, &name, child_inode)?
                 } else {
                     name
                 };
