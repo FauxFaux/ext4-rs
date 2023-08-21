@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::io;
+use std::io::Cursor;
 use std::io::Read;
 use std::io::Seek;
-use std::io::Cursor;
 
 use anyhow::anyhow;
 use anyhow::bail;
@@ -14,13 +14,13 @@ use bitflags::bitflags;
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
 
 use crate::unsupported_feature;
+use crate::ReadAt;
 use crate::Time;
 use crate::{assumption_failed, read_lei32};
 use crate::{map_lib_error_to_io, parse_error};
 use crate::{not_found, Crypto};
 use crate::{read_le16, MetadataCrypto};
 use crate::{read_le32, InnerReader};
-use crate::ReadAt;
 
 const EXT4_SUPER_MAGIC: u16 = 0xEF53;
 const INODE_BASE_LEN: usize = 128;
@@ -73,6 +73,7 @@ bitflags! {
        const LARGEDIR       = 0x4000; /* >2GB or 3-lvl htree */
        const INLINE_DATA    = 0x8000; /* data in inode */
        const ENCRYPT        = 0x10000;
+       const CASEFOLD       = 0x20000;
     }
 }
 
@@ -171,7 +172,8 @@ pub fn superblock<R: ReadAt, C: Crypto, M: MetadataCrypto>(
         | IncompatibleFeature::FLEX_BG
         | IncompatibleFeature::RECOVER
         | IncompatibleFeature::SIXTY_FOUR_BIT
-        | IncompatibleFeature::ENCRYPT;
+        | IncompatibleFeature::ENCRYPT
+        | IncompatibleFeature::CASEFOLD;
 
     if incompatible_features.intersects(!supported_incompatible_features) {
         return Err(parse_error(format!(

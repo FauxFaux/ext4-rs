@@ -151,10 +151,13 @@ bitflags! {
         const TOPDIR       = 0x0002_0000; /* Top of directory hierarchies*/
         const HUGE_FILE    = 0x0004_0000; /* Set to each huge file */
         const EXTENTS      = 0x0008_0000; /* Inode uses extents */
+        const VERITY       = 0x0010_0000; /* Verity protected inode */
         const EA_INODE     = 0x0020_0000; /* Inode used for large EA */
         const EOFBLOCKS    = 0x0040_0000; /* Blocks allocated beyond EOF */
+        const DAX          = 0x0200_0000; /* Inode is DAX */
         const INLINE_DATA  = 0x1000_0000; /* Inode has inline data. */
         const PROJINHERIT  = 0x2000_0000; /* Create with parents projid */
+        const CASEFOLD     = 0x4000_0000; /* Casefolded directory */
         const RESERVED     = 0x8000_0000; /* reserved for ext4 lib */
     }
 }
