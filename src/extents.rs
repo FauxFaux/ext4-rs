@@ -127,10 +127,10 @@ impl<'a, R: ReadAt, C: Crypto, M: MetadataCrypto> io::Read for TreeReader<'a, R,
                     let page_addr =
                         (extent.start + (block_index - extent.part) as u64) * block_size;
 
-                    self.inner
-                        .read_at_without_decrypt(page_addr, page.as_mut_slice())?;
-
                     if let Some(context) = self.encryption_context {
+                        self.inner
+                            .read_at_without_decrypt(page_addr, page.as_mut_slice())?;
+
                         let page_offset = (block_index as u64) * block_size;
 
                         self.crypto
@@ -142,6 +142,8 @@ impl<'a, R: ReadAt, C: Crypto, M: MetadataCrypto> io::Read for TreeReader<'a, R,
                                 self.ino,
                             )
                             .map_err(map_lib_error_to_io)?;
+                    } else {
+                        self.inner.read_at(page_addr, page.as_mut_slice())?;
                     }
 
                     output.write(&page[offset_in_page..])?;
