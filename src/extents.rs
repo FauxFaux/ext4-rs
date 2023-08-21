@@ -1,6 +1,7 @@
 use std::cmp::min;
 use std::convert::TryFrom;
 use std::io;
+use std::io::Write;
 
 use anyhow::ensure;
 use anyhow::Error;
@@ -111,58 +112,51 @@ impl<'a, R: ReadAt, C: Crypto, M: MetadataCrypto> io::Read for TreeReader<'a, R,
         }
 
         let block_size = u64::from(self.block_size);
+        let mut block_index = u32::try_from(self.pos / block_size).map_err(map_lib_error_to_io)?;
 
-        let wanted_block = u32::try_from(self.pos / block_size).map_err(map_lib_error_to_io)?;
-        let read_of_this_block = self.pos % block_size;
-
-        match find_part(wanted_block, &self.extents) {
+        match find_part(block_index, &self.extents) {
             FoundPart::Actual(extent) => {
-                let bytes_through_extent =
-                    (block_size * u64::from(wanted_block - extent.part)) + read_of_this_block;
+                let output_len = min(self.len - self.pos, buf.len() as u64) as usize;
+                let mut output = io::Cursor::new(&mut buf[..output_len]);
 
-                let remaining_bytes_in_extent =
-                    (u64::from(extent.len) * block_size) - bytes_through_extent;
+                let mut page = vec![0u8; block_size as usize];
+                let mut offset_in_page = (self.pos % block_size) as usize;
 
-                let to_read = min(remaining_bytes_in_extent, buf.len() as u64) as usize;
-                let to_read = min(to_read as u64, self.len - self.pos) as usize;
+                let max_block_index = extent.part + (extent.len as u32);
+                while block_index < max_block_index {
+                    let page_addr =
+                        (extent.start + (block_index - extent.part) as u64) * block_size;
 
-                let content_offset = extent.start * block_size + bytes_through_extent;
+                    self.inner
+                        .read_at_without_decrypt(page_addr, page.as_mut_slice())?;
 
-                let read = if let Some(context) = self.encryption_context {
-                    let mut page_offset = 0;
-                    let chunk_size = block_size as usize;
-
-                    while page_offset < to_read {
-                        let page_addr = content_offset + page_offset as u64;
-
-                        let mut page = vec![0u8; chunk_size];
-                        self.inner
-                            .read_at_without_decrypt(page_addr, page.as_mut_slice())?;
+                    if let Some(context) = self.encryption_context {
+                        let page_offset = (block_index as u64) * block_size;
 
                         self.crypto
                             .decrypt_page(
                                 context,
                                 page.as_mut_slice(),
-                                page_offset as u64,
+                                page_offset,
                                 page_addr,
                                 self.ino,
                             )
                             .map_err(map_lib_error_to_io)?;
-
-                        let expected_size = min(to_read - page_offset, chunk_size);
-                        buf[page_offset..page_offset + expected_size]
-                            .copy_from_slice(&page[..expected_size]);
-
-                        page_offset += chunk_size;
                     }
 
-                    to_read
-                } else {
-                    self.inner.read_at(content_offset, &mut buf[0..to_read])?
-                };
+                    output.write(&page[offset_in_page..])?;
+                    if output.position() == output_len as u64 {
+                        break;
+                    }
 
-                self.pos += u64::try_from(read).map_err(map_lib_error_to_io)?;
-                Ok(read)
+                    block_index += 1;
+                    offset_in_page = 0;
+                }
+
+                let read = output.position();
+                self.pos += read;
+
+                Ok(read as usize)
             }
             FoundPart::Sparse(max) => {
                 let max_bytes = u64::from(max) * block_size;
