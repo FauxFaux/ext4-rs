@@ -484,22 +484,26 @@ where
 
         if let Some(high) = i_checksum_hi {
             let expected = u32::from(l_i_checksum_lo) | (u32::from(high) << 16);
-            ensure!(
-                expected == computed,
-                assumption_failed(format!(
-                    "full checksum mismatch: on-disc: {:08x} computed: {:08x}",
-                    expected, computed
-                ))
-            );
+
+            if computed != expected {
+                if cfg!(feature = "verify-checksums") {
+                    bail!(assumption_failed(format!(
+                        "full checksum mismatch: on-disc: {:08x} computed: {:08x}",
+                        expected, computed
+                    )))
+                }
+            }
         } else {
             let short_computed = u16::try_from(computed & 0xFFFF).map_err(map_lib_error_to_io)?;
-            ensure!(
-                l_i_checksum_lo == short_computed,
-                assumption_failed(format!(
-                    "short checksum mismatch: on-disc: {:04x} computed: {:04x}",
-                    l_i_checksum_lo, short_computed
-                ))
-            );
+
+            if short_computed != l_i_checksum_lo {
+                if cfg!(feature = "verify-checksums") {
+                    bail!(assumption_failed(format!(
+                        "short checksum mismatch: on-disc: {:04x} computed: {:04x}",
+                        l_i_checksum_lo, short_computed
+                    )))
+                }
+            }
         }
     }
 

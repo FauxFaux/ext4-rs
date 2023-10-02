@@ -3,6 +3,7 @@ use std::convert::TryFrom;
 use std::io;
 use std::io::Write;
 
+use anyhow::bail;
 use anyhow::ensure;
 use anyhow::Error;
 
@@ -220,15 +221,16 @@ where
         let on_disc = read_le32(&data[end_of_entries..(end_of_entries + 4)]);
         let computed = crate::parse::ext4_style_crc32c_le(checksum_prefix, &data[..end_of_entries]);
 
-        ensure!(
-            computed == on_disc,
-            assumption_failed(format!(
-                "extent checksum mismatch: {:08x} != {:08x} @ {}",
-                on_disc,
-                computed,
-                data.len()
-            ),)
-        );
+        if computed != on_disc {
+            if cfg!(feature = "verify-checksums") {
+                bail!(assumption_failed(format!(
+                    "extent checksum mismatch: {:08x} != {:08x} @ {}",
+                    on_disc,
+                    computed,
+                    data.len()
+                )));
+            }
+        }
     }
 
     if 0 == depth {

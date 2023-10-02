@@ -29,5 +29,6 @@ bootsector = "0.1"
 tempfile = "3"
 
 [features]
-default = ["verify-clean-state"]
+default = ["verify-clean-state", "verify-checksums"]
 verify-clean-state = []
+verify-checksums = []
