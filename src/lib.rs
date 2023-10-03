@@ -23,10 +23,10 @@ use std::io;
 use std::io::{ErrorKind, Read};
 use std::io::{Seek, SeekFrom};
 
-use anyhow::anyhow;
 use anyhow::ensure;
 use anyhow::Context;
 use anyhow::Error;
+use anyhow::{anyhow, bail};
 use bitflags::bitflags;
 use byteorder::{LittleEndian, ReadBytesExt};
 
@@ -747,13 +747,15 @@ impl Inode {
                     let expected = cursor.read_u32::<LittleEndian>()?;
                     let computed =
                         parse::ext4_style_crc32c_le(checksum_prefix, &cursor.into_inner()[0..read]);
-                    ensure!(
-                        expected == computed,
-                        assumption_failed(format!(
-                            "directory checksum mismatch: on-disk: {:08x}, computed: {:08x}",
-                            expected, computed
-                        ))
-                    );
+
+                    if computed != expected {
+                        if cfg!(feature = "verify-checksums") {
+                            bail!(assumption_failed(format!(
+                                "directory checksum mismatch: on-disk: {:08x}, computed: {:08x}",
+                                expected, computed
+                            )))
+                        }
+                    }
                 }
 
                 break;

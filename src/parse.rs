@@ -281,18 +281,19 @@ pub fn superblock<R: ReadAt, C: Crypto, M: MetadataCrypto>(
         );
     }
 
-    // Do not check file system state
-    // {
-    //     const S_STATE_UNMOUNTED_CLEANLY: u16 = 0b01;
-    //     const S_STATE_ERRORS_DETECTED: u16 = 0b10;
-    //
-    //     if s_state & S_STATE_UNMOUNTED_CLEANLY == 0 || s_state & S_STATE_ERRORS_DETECTED != 0 {
-    //         return Err(parse_error(format!(
-    //             "filesystem is not in a clean state: {:b}",
-    //             s_state
-    //         )));
-    //     }
-    // }
+    {
+        const S_STATE_UNMOUNTED_CLEANLY: u16 = 0b01;
+        const S_STATE_ERRORS_DETECTED: u16 = 0b10;
+
+        if s_state & S_STATE_UNMOUNTED_CLEANLY == 0 || s_state & S_STATE_ERRORS_DETECTED != 0 {
+            if cfg!(feature = "verify-clean-state") {
+                return Err(parse_error(format!(
+                    "filesystem is not in a clean state: {:b}",
+                    s_state
+                )));
+            }
+        }
+    }
 
     if 0 == s_inodes_per_group {
         return Err(parse_error("inodes per group cannot be zero".to_string()));
@@ -483,22 +484,26 @@ where
 
         if let Some(high) = i_checksum_hi {
             let expected = u32::from(l_i_checksum_lo) | (u32::from(high) << 16);
-            ensure!(
-                expected == computed,
-                assumption_failed(format!(
-                    "full checksum mismatch: on-disc: {:08x} computed: {:08x}",
-                    expected, computed
-                ))
-            );
+
+            if computed != expected {
+                if cfg!(feature = "verify-checksums") {
+                    bail!(assumption_failed(format!(
+                        "full checksum mismatch: on-disc: {:08x} computed: {:08x}",
+                        expected, computed
+                    )))
+                }
+            }
         } else {
             let short_computed = u16::try_from(computed & 0xFFFF).map_err(map_lib_error_to_io)?;
-            ensure!(
-                l_i_checksum_lo == short_computed,
-                assumption_failed(format!(
-                    "short checksum mismatch: on-disc: {:04x} computed: {:04x}",
-                    l_i_checksum_lo, short_computed
-                ))
-            );
+
+            if short_computed != l_i_checksum_lo {
+                if cfg!(feature = "verify-checksums") {
+                    bail!(assumption_failed(format!(
+                        "short checksum mismatch: on-disc: {:04x} computed: {:04x}",
+                        l_i_checksum_lo, short_computed
+                    )))
+                }
+            }
         }
     }
 
