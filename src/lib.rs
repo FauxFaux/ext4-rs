@@ -599,12 +599,15 @@ impl Inode {
 
             FileType::Directory => Enhanced::Directory(self.read_directory(inner, crypto)?),
             FileType::SymbolicLink => {
+                let allowed_flags = InodeFlags::ENCRYPT | InodeFlags::NOATIME;
+                let link_flags = self.flags & !allowed_flags;
+
                 let mut points_to = if self.stat.size < u64::try_from(INODE_CORE_SIZE)? {
                     ensure!(
-                        (self.flags & !InodeFlags::ENCRYPT).is_empty(),
+                        link_flags.is_empty(),
                         unsupported_feature(format!(
                             "symbolic links may not have flags: {:?}",
-                            self.flags
+                            link_flags
                         ))
                     );
 
@@ -614,10 +617,10 @@ impl Inode {
                     points_to
                 } else {
                     ensure!(
-                        Self::only_relevant_flag_is_extents(self.flags & !InodeFlags::ENCRYPT),
+                        Self::only_relevant_flag_is_extents(link_flags),
                         unsupported_feature(format!(
                             "symbolic links may not have non-extent flags: {:?}",
-                            self.flags
+                            link_flags
                         ))
                     );
 
