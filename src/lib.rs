@@ -311,7 +311,7 @@ where
 
     fn load_inode_bytes(&self, inode: u32) -> Result<Vec<u8>, Error> {
         let offset = self.groups.index_of(inode)?;
-        let mut data = vec![0u8; usize::try_from(self.groups.inode_size)?];
+        let mut data = vec![0u8; usize::from(self.groups.inode_size)];
         self.inner.read_exact_at(offset, &mut data)?;
         Ok(data)
     }
@@ -535,7 +535,7 @@ impl Inode {
 
             let name_len = cursor.read_u8()?;
             let file_type = cursor.read_u8()?;
-            let mut name = vec![0u8; usize::try_from(name_len)?];
+            let mut name = vec![0u8; usize::from(name_len)];
             cursor.read_exact(&mut name)?;
             if 0 != child_inode {
                 let name = std::str::from_utf8(&name)
@@ -574,7 +574,7 @@ impl Inode {
                 i64::from(rec_len) - i64::from(name_len) - 4 - 2 - 1 - 1,
             ))?;
 
-            read += usize::try_from(rec_len)?;
+            read += usize::from(rec_len);
             if read >= total_len {
                 ensure!(
                     read == total_len,
