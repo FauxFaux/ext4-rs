@@ -1,8 +1,8 @@
 use std::convert::TryFrom;
 use std::io;
 
-use anyhow::ensure;
 use anyhow::Error;
+use anyhow::ensure;
 use byteorder::{LittleEndian, ReadBytesExt};
 
 use crate::assumption_failed;

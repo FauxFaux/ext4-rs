@@ -23,10 +23,10 @@ use std::io;
 use std::io::Read;
 use std::io::Seek;
 
-use anyhow::anyhow;
-use anyhow::ensure;
 use anyhow::Context;
 use anyhow::Error;
+use anyhow::anyhow;
+use anyhow::ensure;
 use bitflags::bitflags;
 use byteorder::{LittleEndian, ReadBytesExt};
 pub use positioned_io2::ReadAt;
