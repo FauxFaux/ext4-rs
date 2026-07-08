@@ -64,7 +64,7 @@ enum FoundPart<'a> {
     Sparse(u32),
 }
 
-fn find_part(part: u32, extents: &[Extent]) -> FoundPart {
+fn find_part(part: u32, extents: &[Extent]) -> FoundPart<'_> {
     for extent in extents {
         if part < extent.part {
             // we've gone past it
