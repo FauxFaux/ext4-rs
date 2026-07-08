@@ -31,6 +31,7 @@ I'm not especially interested in resource-constrained platforms: memory and IO a
 
 ## Changelog
 
+ * main: edition=2024 (`rust 1.85`)
  * `0.10.0`: move to `positioned_io2` over weird seeking; `rust 1.59`
  * `0.7.0`: use `rust 1.34` features to remove `cast` dependency
  * `0.6.0`: use `failure` for error handling
@@ -40,7 +41,7 @@ I'm not especially interested in resource-constrained platforms: memory and IO a
 
 ## MSRV
 
-Rust 1.59 (Debian Bookworm / `edition = "2021"`) is supported, and checked by CI.
+Rust 1.85 (Debian Trixie / `edition = "2024"`) is supported, and checked by CI.
 Updating this is a semver bump.
 
 
